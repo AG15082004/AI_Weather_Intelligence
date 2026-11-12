@@ -150,3 +150,27 @@ apiClient.interceptors.response.use(
     return Promise.reject(enhancedError);
   }
 );
+
+// In-flight GET request deduplication cache to prevent simultaneous duplicate roundtrips
+const pendingGetRequests = new Map<string, Promise<any>>();
+
+export async function deduplicatedGet<T = any>(
+  url: string,
+  config?: AxiosRequestConfig
+): Promise<T> {
+  const cacheKey = `${url}?${JSON.stringify(config?.params || {})}`;
+  const existing = pendingGetRequests.get(cacheKey);
+  if (existing) {
+    return existing;
+  }
+
+  const promise = apiClient
+    .get<T>(url, config)
+    .then((res) => res.data)
+    .finally(() => {
+      pendingGetRequests.delete(cacheKey);
+    });
+
+  pendingGetRequests.set(cacheKey, promise);
+  return promise;
+}

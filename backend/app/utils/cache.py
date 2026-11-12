@@ -1,14 +1,14 @@
 """TTL cache utilities.
 
-Provides a simple time-based cache decorator for async functions,
-used to reduce redundant database queries and API calls.
+Provides thread-safe, bounded in-memory TTL caching with LRU/FIFO eviction
+and hit/miss observability metrics to optimize API responsiveness.
 """
 
-import asyncio
+from collections import OrderedDict
 import functools
+import threading
 import time
 from typing import Any, Callable, Dict, Optional, Tuple
-
 import structlog
 
 from app.config import get_settings
@@ -17,116 +17,137 @@ log = structlog.get_logger()
 
 
 class TTLCache:
-    """Simple in-memory TTL cache.
+    """Thread-safe, bounded in-memory TTL cache with hit/miss tracking."""
 
-    Stores results keyed by function arguments with automatic
-    expiration based on configured TTL.
-    """
-
-    def __init__(self, ttl_seconds: Optional[int] = None) -> None:
-        """Initialize the cache.
+    def __init__(
+        self,
+        ttl_seconds: Optional[int] = None,
+        max_entries: int = 500,
+    ) -> None:
+        """Initialize bounded TTL cache.
 
         Args:
-            ttl_seconds: Cache entry lifetime in seconds.
-                         Defaults to CACHE_TTL_SECONDS from settings.
+            ttl_seconds: Lifetime of cached entries in seconds.
+            max_entries: Maximum number of items before oldest entries are evicted.
         """
         self._ttl = ttl_seconds or get_settings().cache_ttl_seconds
-        self._cache: Dict[str, Tuple[Any, float]] = {}
+        self._max_entries = max_entries
+        self._cache: OrderedDict[str, Tuple[Any, float]] = OrderedDict()
+        self._lock = threading.Lock()
+
+        # Telemetry metrics
+        self.hits = 0
+        self.misses = 0
+        self.evictions = 0
 
     def get(self, key: str) -> Optional[Any]:
         """Retrieve a cached value if it exists and hasn't expired.
 
-        Args:
-            key: Cache key string.
-
         Returns:
             Cached value, or None if missing or expired.
         """
-        entry = self._cache.get(key)
-        if entry is None:
-            return None
+        with self._lock:
+            if key not in self._cache:
+                self.misses += 1
+                return None
 
-        value, expiry = entry
-        if time.time() > expiry:
-            del self._cache[key]
-            return None
+            value, expiry = self._cache[key]
+            now = time.time()
+            if now > expiry:
+                del self._cache[key]
+                self.misses += 1
+                return None
 
-        return value
+            # Move to end for LRU behavior
+            self._cache.move_to_end(key)
+            self.hits += 1
+            return value
 
-    def set(self, key: str, value: Any) -> None:
-        """Store a value in the cache.
+    def set(self, key: str, value: Any, ttl_seconds: Optional[int] = None) -> None:
+        """Store a value in the cache with bounded capacity enforcement."""
+        ttl = ttl_seconds if ttl_seconds is not None else self._ttl
+        expiry = time.time() + ttl
 
-        Args:
-            key: Cache key string.
-            value: Value to cache.
-        """
-        self._cache[key] = (value, time.time() + self._ttl)
+        with self._lock:
+            # Enforce max entries bound (evict oldest if full)
+            if key not in self._cache and len(self._cache) >= self._max_entries:
+                self._cache.popitem(last=False)
+                self.evictions += 1
+
+            self._cache[key] = (value, expiry)
+            self._cache.move_to_end(key)
 
     def clear(self) -> int:
         """Clear all cached entries."""
-        count = len(self._cache)
-        self._cache.clear()
-        log.info("cache_cleared", count=count)
-        return count
+        with self._lock:
+            count = len(self._cache)
+            self._cache.clear()
+            log.info("cache_cleared", count=count)
+            return count
 
     def evict_expired(self) -> int:
-        """Remove all expired entries.
-
-        Returns:
-            Number of entries evicted.
-        """
+        """Remove all expired entries."""
         now = time.time()
-        expired_keys = [k for k, (_, exp) in self._cache.items() if now > exp]
-        for key in expired_keys:
-            del self._cache[key]
-        if expired_keys:
-            log.info("cache_evicted", count=len(expired_keys))
-        return len(expired_keys)
+        evicted = 0
+        with self._lock:
+            keys = list(self._cache.keys())
+            for key in keys:
+                if key in self._cache and now > self._cache[key][1]:
+                    del self._cache[key]
+                    evicted += 1
+                    self.evictions += 1
+        if evicted:
+            log.info("cache_evicted", count=evicted)
+        return evicted
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Return cache health and efficiency metrics."""
+        with self._lock:
+            total_lookups = self.hits + self.misses
+            hit_ratio = (
+                round((self.hits / total_lookups) * 100.0, 1)
+                if total_lookups > 0
+                else 0.0
+            )
+            return {
+                "size": len(self._cache),
+                "max_entries": self._max_entries,
+                "default_ttl_seconds": self._ttl,
+                "hits": self.hits,
+                "misses": self.misses,
+                "evictions": self.evictions,
+                "hit_ratio_pct": hit_ratio,
+            }
+
+
+# Singleton shared bounded cache for all weather queries & routes
+shared_cache = TTLCache(max_entries=500)
 
 
 def cached(ttl_seconds: Optional[int] = None) -> Callable:
-    """Decorator to cache async function results with TTL.
+    """Decorator to cache async function results with TTL using the shared cache.
 
     Args:
         ttl_seconds: Cache entry lifetime in seconds.
-                     Defaults to CACHE_TTL_SECONDS from settings.
-
-    Returns:
-        Decorated function with caching.
-
-    Usage:
-        @cached(ttl_seconds=60)
-        async def get_data(district: str) -> dict:
-            ...
     """
-    cache = TTLCache(ttl_seconds=ttl_seconds)
-
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
-            # Build cache key from function name + args
             key_parts = [func.__name__] + [str(a) for a in args]
             key_parts += [f"{k}={v}" for k, v in sorted(kwargs.items())]
             cache_key = ":".join(key_parts)
 
-            # Check cache
-            result = cache.get(cache_key)
+            result = shared_cache.get(cache_key)
             if result is not None:
                 log.debug("cache_hit", key=cache_key)
                 return result
 
-            # Call function and cache result
             log.debug("cache_miss", key=cache_key)
             result = await func(*args, **kwargs)
-            cache.set(cache_key, result)
+            shared_cache.set(cache_key, result, ttl_seconds=ttl_seconds)
             return result
 
-        # Expose cache for manual management
-        wrapper.cache = cache  # type: ignore[attr-defined]
+        wrapper.cache = shared_cache  # type: ignore[attr-defined]
         return wrapper
 
     return decorator
-
-
-# Global shared cache instance
-shared_cache = TTLCache()

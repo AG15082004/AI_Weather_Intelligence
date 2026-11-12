@@ -169,6 +169,7 @@ class MetricsService:
                     "failed_queries": self.ai_failed_queries,
                     "avg_duration_ms": avg_ai_latency,
                 },
+                "cache_metrics": self._get_cache_stats(),
                 "data_freshness": {
                     "status": "healthy" if coverage_pct >= 95.0 else "degraded",
                     "latest_observation": self.latest_observation_timestamp,
@@ -179,4 +180,14 @@ class MetricsService:
             }
 
 
+    def _get_cache_stats(self) -> Dict[str, Any]:
+        """Safely extract cache hit/miss statistics without circular import."""
+        try:
+            from app.utils.cache import shared_cache
+            return shared_cache.get_stats()
+        except Exception:
+            return {"hits": 0, "misses": 0, "size": 0}
+
+
 metrics_service = MetricsService()
+

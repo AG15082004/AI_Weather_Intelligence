@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import structlog
 
 from app.database.query_executor import QueryExecutor
+from app.utils.cache import shared_cache
 from app.utils.date_utils import (
     get_ist_today,
     get_ist_yesterday,
@@ -59,20 +60,13 @@ class WeatherService:
 
     def __init__(self, executor: Optional[QueryExecutor] = None) -> None:
         self._executor = executor or QueryExecutor()
-        # In-memory TTL cache: key -> (timestamp, data)
-        self._cache: Dict[str, Tuple[float, Any]] = {}
-        self._cache_ttl = 300  # 5 minutes default
+        self._cache = shared_cache
 
     def _get_from_cache(self, key: str) -> Optional[Any]:
-        if key in self._cache:
-            ts, data = self._cache[key]
-            if time.time() - ts < self._cache_ttl:
-                return data
-            del self._cache[key]
-        return None
+        return self._cache.get(key)
 
-    def _set_in_cache(self, key: str, data: Any) -> None:
-        self._cache[key] = (time.time(), data)
+    def _set_in_cache(self, key: str, data: Any, ttl_seconds: Optional[int] = None) -> None:
+        self._cache.set(key, data, ttl_seconds=ttl_seconds)
 
     async def get_overview(
         self,

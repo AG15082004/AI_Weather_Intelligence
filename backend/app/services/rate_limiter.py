@@ -95,3 +95,4 @@ class InMemoryRateLimiter:
 
 # Global rate limiter instance for AI chat
 ai_rate_limiter = InMemoryRateLimiter(default_limit=30, default_window_seconds=60)
+

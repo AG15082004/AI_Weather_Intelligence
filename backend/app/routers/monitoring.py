@@ -58,6 +58,7 @@ async def get_operational_status() -> Dict[str, Any]:
             "ollama_available": ollama_health.get("available", False),
             "avg_latency_ms": summary["ai_metrics"]["avg_duration_ms"],
         },
+        "cache": shared_cache.get_stats(),
         "data_freshness": summary["data_freshness"],
     }
 

@@ -98,3 +98,4 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
             error_response.headers["X-Request-ID"] = request_id
             error_response.headers["X-Response-Time-Ms"] = str(duration_ms)
             return error_response
+
