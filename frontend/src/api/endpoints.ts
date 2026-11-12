@@ -499,3 +499,40 @@ export async function getDashboardPresets(): Promise<DashboardSpec[]> {
       : [],
   }));
 }
+
+export interface OperationalStatus {
+  status: string;
+  service: string;
+  environment: string;
+  uptime_seconds: number;
+  api: {
+    status: string;
+    version: string;
+    avg_latency_ms: number;
+  };
+  fabric: {
+    status: string;
+    total_queries: number;
+    avg_latency_ms: number;
+    last_query_timestamp: string | null;
+  };
+  ai: {
+    status: string;
+    active_provider: string;
+    provider_reason: string;
+    ollama_available: boolean;
+    avg_latency_ms: number;
+  };
+  data_freshness: {
+    status: string;
+    latest_observation: string;
+    districts_reporting: number;
+    total_districts: number;
+    coverage_pct: number;
+  };
+}
+
+export async function getOperationalStatus(): Promise<OperationalStatus> {
+  const res = await apiClient.get<OperationalStatus>("/api/monitoring/operational-status");
+  return res.data;
+}

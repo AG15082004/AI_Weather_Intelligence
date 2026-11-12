@@ -62,10 +62,12 @@ class TTLCache:
         """
         self._cache[key] = (value, time.time() + self._ttl)
 
-    def clear(self) -> None:
+    def clear(self) -> int:
         """Clear all cached entries."""
+        count = len(self._cache)
         self._cache.clear()
-        log.info("cache_cleared")
+        log.info("cache_cleared", count=count)
+        return count
 
     def evict_expired(self) -> int:
         """Remove all expired entries.
@@ -124,3 +126,7 @@ def cached(ttl_seconds: Optional[int] = None) -> Callable:
         return wrapper
 
     return decorator
+
+
+# Global shared cache instance
+shared_cache = TTLCache()

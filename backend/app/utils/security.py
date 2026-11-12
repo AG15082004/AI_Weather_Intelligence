@@ -4,10 +4,12 @@ Provides functions to sanitize and validate user inputs
 to prevent injection attacks and ensure data integrity.
 """
 
+import hmac
 import re
-from typing import Optional
-
+from typing import Any, Optional
 import structlog
+
+from app.config import get_settings
 
 log = structlog.get_logger()
 
@@ -105,4 +107,100 @@ def sanitize_sql_identifier(identifier: str) -> str:
     sanitized = re.sub(r"[^a-zA-Z0-9_]", "", identifier)
     if not sanitized:
         raise ValueError(f"Invalid SQL identifier: {identifier!r}")
+    return sanitized
+
+
+# ---------------------------------------------------------------------------
+# Production Secret Masking & Authentication
+# ---------------------------------------------------------------------------
+
+_SENSITIVE_KEY_PATTERNS = re.compile(
+    r"(password|secret|token|authorization|cookie|bearer|key|credential|private)",
+    re.IGNORECASE,
+)
+
+
+def mask_secrets(data: Any) -> Any:
+    """Recursively mask sensitive values in dictionaries, lists, or strings.
+
+    Args:
+        data: Arbitrary object to be sanitized for logging or reporting.
+
+    Returns:
+        Sanitized copy with sensitive values masked with '***REDACTED***'.
+    """
+    if isinstance(data, dict):
+        sanitized_dict = {}
+        for k, v in data.items():
+            if isinstance(k, str) and _SENSITIVE_KEY_PATTERNS.search(k):
+                sanitized_dict[k] = "***REDACTED***"
+            else:
+                sanitized_dict[k] = mask_secrets(v)
+        return sanitized_dict
+    elif isinstance(data, (list, tuple, set)):
+        return [mask_secrets(item) for item in data]
+    elif isinstance(data, str):
+        # Mask inline Bearer tokens or passwords if present in string
+        if "bearer " in data.lower():
+            return re.sub(r"(bearer\s+)[a-zA-Z0-9_\-\.]+", r"\1***REDACTED***", data, flags=re.IGNORECASE)
+        return data
+    return data
+
+
+def verify_admin_key(provided_key: Optional[str]) -> bool:
+    """Verify administrator authorization key using constant-time comparison.
+
+    Args:
+        provided_key: Key supplied via X-API-Key or Authorization header.
+
+    Returns:
+        True if valid, False otherwise.
+    """
+    settings = get_settings()
+    configured_key = settings.admin_api_key
+
+    # If no admin key is configured in production, deny sensitive operations
+    if not configured_key:
+        if settings.app_env.lower() in ("production", "staging"):
+            log.warning("admin_key_verification_blocked", reason="admin_key_not_configured_in_production")
+            return False
+        # In local development without configured key, permit with warning
+        log.warning("admin_key_unconfigured_permitting_dev")
+        return True
+
+    if not provided_key:
+        return False
+
+    # Extract bearer prefix if provided
+    token = provided_key.strip()
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
+
+    return hmac.compare_digest(token, configured_key.strip())
+
+
+def validate_ai_prompt(prompt: Optional[str], max_length: int = 1000) -> str:
+    """Validate and sanitize a natural-language query for AI endpoints.
+
+    Args:
+        prompt: Raw user query string.
+        max_length: Maximum allowed prompt character length.
+
+    Returns:
+        Sanitized prompt string.
+
+    Raises:
+        ValueError: If prompt is empty or exceeds character limits.
+    """
+    if not prompt or not prompt.strip():
+        raise ValueError("AI query message cannot be empty.")
+
+    clean_prompt = prompt.strip()
+    if len(clean_prompt) > max_length:
+        raise ValueError(f"AI query length ({len(clean_prompt)}) exceeds maximum limit of {max_length} characters.")
+
+    sanitized = sanitize_query(clean_prompt)
+    if not sanitized:
+        raise ValueError("AI query contains invalid or dangerous content.")
+
     return sanitized

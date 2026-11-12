@@ -7,12 +7,14 @@ and factually grounded explanations powered by Qwen3:4b.
 """
 
 from datetime import date
+import time
 from typing import Any, Dict, List, Optional
 import structlog
 
 from app.config import get_settings
 from app.schemas.ai import AIChatRequest, AIChatResponse, ChartSpec, ExtractedIntent
 from app.services.grounded_response_generator import GroundedResponseGenerator
+from app.services.metrics_service import metrics_service
 from app.services.session_memory import session_manager
 from app.services.weather_agent_router import WeatherAgentRouter
 from app.utils.date_extractor import extract_date_range
@@ -123,12 +125,16 @@ class AIService:
             }
 
         # 5. Generate grounded natural-language answer & follow-up suggestions
+        ai_gen_start = time.perf_counter()
         answer_text, suggestions = await self.generator.generate_answer(
             query=clean_q,
             extracted=extracted,
             query_result=query_result,
             session_history=session.history,
         )
+        gen_duration_ms = round((time.perf_counter() - ai_gen_start) * 1000, 2)
+        active_prov, _ = await self.generator.resolve_ai_provider()
+        metrics_service.record_ai_query(provider=active_prov, duration_ms=gen_duration_ms, success=True)
 
         # 6. Update conversational memory
         session.update(extracted, clean_q, answer_text)

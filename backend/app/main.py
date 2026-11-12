@@ -13,6 +13,8 @@ from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
+from app.middleware.observability import ObservabilityMiddleware
+from app.middleware.security import RequestSizeLimitMiddleware, SecurityHeadersMiddleware
 from app.routers import (
     overview,
     temperature,
@@ -24,9 +26,13 @@ from app.routers import (
     dashboard_builder,
     fabric,
     historical,
+    monitoring,
 )
+from app.services.ai_service import AIService
+from app.services.metrics_service import metrics_service
 
 settings = get_settings()
+ai_service = AIService()
 
 # ---------------------------------------------------------------------------
 # Structured logging setup
@@ -76,6 +82,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Security headers (injected into all responses)
+if settings.enable_security_headers:
+    app.add_middleware(SecurityHeadersMiddleware)
+
+# Request payload size guard
+app.add_middleware(
+    RequestSizeLimitMiddleware,
+    max_bytes=settings.max_request_body_bytes,
+)
+
+# Observability, X-Request-ID, duration tracking & error masking
+app.add_middleware(ObservabilityMiddleware)
+
 # CORS middleware — origins driven by env and regex for Render production domains
 app.add_middleware(
     CORSMiddleware,
@@ -107,6 +126,8 @@ app.include_router(ai.router, prefix="/api")
 app.include_router(dashboard_builder.router, prefix="/api")
 app.include_router(fabric.router, prefix="/api")
 app.include_router(historical.router, prefix="/api")
+app.include_router(monitoring.router, prefix="/api")
+app.include_router(monitoring.admin_router, prefix="/api")
 
 
 # ---------------------------------------------------------------------------
@@ -126,12 +147,56 @@ async def root():
 
 @app.get("/api/health", tags=["health"])
 async def health_check():
-    """Return service health status."""
+    """Return comprehensive multi-tier service health status.
+
+    Evaluates:
+      - FastAPI API core
+      - Microsoft Fabric telemetry and connectivity state (cached, non-blocking)
+      - AI Provider status (healthy via deterministic fallback even if Ollama offline)
+      - Data freshness and district coverage
+    """
+    summary = metrics_service.get_summary()
+    active_prov, prov_reason = await ai_service.generator.resolve_ai_provider()
+    ollama_health = await ai_service.generator.check_ollama_health()
+
+    fabric_status = summary["fabric_metrics"]["status"]
+    
+    # Global status evaluation:
+    # If fabric is unavailable, overall status is unavailable.
+    # If fabric is degraded, overall status is degraded.
+    # If AI deterministic is active and fabric is healthy, overall status is HEALTHY!
+    if fabric_status == "unavailable":
+        overall_status = "unavailable"
+    elif fabric_status == "degraded":
+        overall_status = "degraded"
+    else:
+        overall_status = "healthy"
+
     return {
-        "status": "healthy",
+        "status": overall_status,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "service": "TN Weather Intelligence API",
         "version": "1.0.0",
+        "uptime_seconds": summary["uptime_seconds"],
+        "components": {
+            "api": {
+                "status": "healthy",
+                "avg_response_time_ms": summary["http_metrics"]["avg_duration_ms"],
+            },
+            "fabric": {
+                "status": fabric_status,
+                "total_queries": summary["fabric_metrics"]["total_queries"],
+                "last_query_timestamp": summary["fabric_metrics"]["last_query_timestamp"],
+                "avg_query_time_ms": summary["fabric_metrics"]["avg_duration_ms"],
+            },
+            "ai": {
+                "status": "healthy",
+                "active_provider": active_prov,
+                "provider_reason": prov_reason,
+                "ollama_available": ollama_health.get("available", False),
+            },
+            "data_freshness": summary["data_freshness"],
+        },
     }
 
 

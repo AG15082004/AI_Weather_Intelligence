@@ -12,6 +12,7 @@ import structlog
 
 from app.config import get_settings
 from app.database.connection import get_pool
+from app.services.metrics_service import metrics_service
 
 log = structlog.get_logger()
 
@@ -97,6 +98,7 @@ class QueryExecutor:
 
             duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
             results = [dict(zip(columns, row)) for row in rows]
+            metrics_service.record_fabric_query(success=True, duration_ms=duration_ms)
             log.info(
                 "query_executed",
                 row_count=len(results),
@@ -107,6 +109,7 @@ class QueryExecutor:
 
         except (pyodbc.Error, Exception) as exc:
             duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
+            metrics_service.record_fabric_query(success=False, duration_ms=duration_ms)
             classified = classify_db_error(exc)
             log.error(
                 "query_execution_failed",

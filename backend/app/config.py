@@ -130,6 +130,28 @@ class Settings(BaseSettings):
     def ollama_timeout(self) -> float:
         return float(self.ai_request_timeout)
 
+    # Production Security & Monitoring
+    admin_api_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("ADMIN_API_KEY"),
+        description="Optional API key for administrative operations (cache purge, schema re-discovery)",
+    )
+    ai_rate_limit_per_minute: int = Field(
+        default=30,
+        validation_alias=AliasChoices("AI_RATE_LIMIT_PER_MINUTE"),
+        description="Maximum AI chat queries per minute per client IP",
+    )
+    max_request_body_bytes: int = Field(
+        default=1_048_576,  # 1MB
+        validation_alias=AliasChoices("MAX_REQUEST_BODY_BYTES"),
+        description="Maximum allowed request payload size in bytes",
+    )
+    enable_security_headers: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("ENABLE_SECURITY_HEADERS"),
+        description="Enable standard OWASP security response headers",
+    )
+
     # Application Settings
     cors_origins: str = Field(
         default=(

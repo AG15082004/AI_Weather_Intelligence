@@ -20,6 +20,7 @@ import { LoadingSkeleton } from "@/components/common/LoadingSkeleton";
 import { ErrorState } from "@/components/common/ErrorState";
 import { EmptyState } from "@/components/common/EmptyState";
 import { FabricStatusBanner } from "@/components/common/FabricStatusBanner";
+import { OperationalMonitoringCard } from "@/components/common/OperationalMonitoringCard";
 import { TemperatureChart } from "@/components/charts/TemperatureChart";
 import { RainfallChart } from "@/components/charts/RainfallChart";
 import { ComparisonChart } from "@/components/charts/ComparisonChart";
@@ -121,6 +122,9 @@ export function WeatherOverview() {
         onTogglePreview={() => setPreviewSample((prev) => !prev)}
         onRefresh={() => void refetch()}
       />
+
+      {/* Operational Observability & Health Monitoring */}
+      <OperationalMonitoringCard />
 
       {/* 6 KPI Cards */}
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
