@@ -49,10 +49,13 @@ async def clear_session_endpoint(conversation_id: str):
 @router.get("/health")
 async def ai_health_endpoint():
     """Health check for AI engine, Ollama service, and Fabric connectivity."""
+    active_provider, provider_reason = await ai_service.generator.resolve_ai_provider()
     ollama_health = await ai_service.generator.check_ollama_health()
     return {
         "status": "healthy",
         "service": "AI Weather Intelligence Agent",
+        "active_provider": active_provider,
+        "provider_reason": provider_reason,
         "ollama": ollama_health,
         "active_sessions": session_manager.active_sessions_count(),
     }

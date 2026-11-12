@@ -101,7 +101,12 @@ class Settings(BaseSettings):
     def fabric_authentication(self) -> str:
         return self.fabric_auth_mode
 
-    # Ollama AI Configuration
+    # Ollama & AI Configuration
+    ai_provider: str = Field(
+        default="auto",
+        validation_alias=AliasChoices("AI_PROVIDER"),
+        description="AI provider strategy: auto, ollama, or deterministic",
+    )
     ollama_base_url: str = Field(
         default="http://127.0.0.1:11434",
         description="Ollama API base URL",
@@ -110,6 +115,20 @@ class Settings(BaseSettings):
         default="qwen3:4b",
         description="Ollama model name to use for AI features",
     )
+    ai_request_timeout: int = Field(
+        default=30,
+        validation_alias=AliasChoices("AI_REQUEST_TIMEOUT", "OLLAMA_TIMEOUT"),
+        description="Timeout for AI generation requests in seconds",
+    )
+    ollama_connect_timeout: float = Field(
+        default=2.5,
+        validation_alias=AliasChoices("OLLAMA_CONNECT_TIMEOUT"),
+        description="Connection timeout for Ollama health checks in seconds",
+    )
+
+    @property
+    def ollama_timeout(self) -> float:
+        return float(self.ai_request_timeout)
 
     # Application Settings
     cors_origins: str = Field(
