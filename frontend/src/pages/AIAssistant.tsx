@@ -10,6 +10,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { chatWithAI, clearChatSession } from "@/api/endpoints";
+import { API_BASE_URL } from "@/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -159,8 +160,7 @@ export function AIAssistant() {
 
       let userFriendlyMsg = rawMsg;
       if (rawMsg.includes("Unable to reach") || rawMsg.includes("Network Error")) {
-        userFriendlyMsg =
-          "Unable to connect to the backend server. Please verify the FastAPI service is running on http://127.0.0.1:8000.";
+        userFriendlyMsg = `Unable to connect to the backend server. Please verify the backend service is running on ${API_BASE_URL}.`;
       } else if (rawMsg.includes("timed out") || rawMsg.includes("Lakehouse query timed out")) {
         userFriendlyMsg =
           "The query timed out while waiting for weather data. Please click Retry below to run the query again.";

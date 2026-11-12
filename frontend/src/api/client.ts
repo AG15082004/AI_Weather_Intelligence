@@ -6,14 +6,29 @@ import axios, {
 
 /**
  * TN Weather Intelligence API Client
- * Configured for local development and production environments.
- * Development API base URL: http://127.0.0.1:8000
+ * Configured for local development and Render production environments.
+ *
+ * Precedence:
+ * 1. import.meta.env.VITE_API_BASE_URL (explicit environment variable)
+ * 2. Production mode default: https://ai-weather-intelligence.onrender.com
+ * 3. Local development fallback: http://127.0.0.1:8000
  */
-const RAW_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+const DEFAULT_PROD_API_URL = "https://ai-weather-intelligence.onrender.com";
+const DEFAULT_DEV_API_URL = "http://127.0.0.1:8000";
+
+export function getApiBaseUrl(): string {
+  const envUrl = import.meta.env.VITE_API_BASE_URL;
+  if (envUrl && typeof envUrl === "string" && envUrl.trim() !== "") {
+    return envUrl.trim().replace(/\/+$/, "");
+  }
+  if (import.meta.env.PROD) {
+    return DEFAULT_PROD_API_URL;
+  }
+  return DEFAULT_DEV_API_URL;
+}
 
 // Ensure trailing slashes are removed from baseURL
-export const API_BASE_URL = RAW_BASE_URL.replace(/\/+$/, "");
+export const API_BASE_URL = getApiBaseUrl();
 
 // Extended config to track retry counts
 interface RetryConfig extends AxiosRequestConfig {
@@ -109,8 +124,7 @@ apiClient.interceptors.response.use(
       message =
         "Lakehouse query timed out. The backend is processing or Microsoft Fabric is warming up.";
     } else if (error.request) {
-      message =
-        "Unable to reach the TN Weather Intelligence API server at http://127.0.0.1:8000. Please verify the FastAPI backend is running.";
+      message = `Unable to reach the TN Weather Intelligence API server at ${API_BASE_URL}. Please verify the backend service is running.`;
     } else if (error.message) {
       message = error.message;
     }

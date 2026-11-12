@@ -38,6 +38,8 @@ class GroundedResponseGenerator:
             return "District Directory"
         if "current" in s or "silver" in s or "gold_current" in s:
             return "Live Weather Observations"
+        if "lakehouse" in s and "dbo" not in s and "gold" not in s:
+            return raw_source
         return "Live Weather Observations"
 
     async def generate_answer(

@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
@@ -76,14 +76,23 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware — origins driven by env
+# CORS middleware — origins driven by env and regex for Render production domains
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
+    allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=86400,
 )
+
+
+@app.options("/{full_path:path}", include_in_schema=False)
+async def options_catchall(full_path: str):
+    """Fallback handler for direct non-CORS OPTIONS probes."""
+    return Response(status_code=200)
 
 # ---------------------------------------------------------------------------
 # Routers — all under /api
@@ -103,6 +112,18 @@ app.include_router(historical.router, prefix="/api")
 # ---------------------------------------------------------------------------
 # Health check & Schema Discovery
 # ---------------------------------------------------------------------------
+@app.get("/", tags=["root"])
+async def root():
+    """Service root endpoint."""
+    return {
+        "service": "TN Weather Intelligence API",
+        "status": "healthy",
+        "version": "1.0.0",
+        "docs": "/docs",
+        "health": "/api/health",
+    }
+
+
 @app.get("/api/health", tags=["health"])
 async def health_check():
     """Return service health status."""
