@@ -13,18 +13,15 @@ import axios, {
  * 2. Production mode default: https://ai-weather-intelligence.onrender.com
  * 3. Local development fallback: http://127.0.0.1:8000
  */
-const DEFAULT_PROD_API_URL = "https://ai-weather-intelligence.onrender.com";
-const DEFAULT_DEV_API_URL = "http://127.0.0.1:8000";
-
 export function getApiBaseUrl(): string {
   const envUrl = import.meta.env.VITE_API_BASE_URL;
   if (envUrl && typeof envUrl === "string" && envUrl.trim() !== "") {
-    return envUrl.trim().replace(/\/+$/, "");
+    return envUrl.trim().replace(/\/+$/, "").replace(/\/api$/, "");
   }
   if (import.meta.env.PROD) {
-    return DEFAULT_PROD_API_URL;
+    return "https://ai-weather-intelligence.onrender.com";
   }
-  return DEFAULT_DEV_API_URL;
+  return "http://127.0.0.1:8000";
 }
 
 // Ensure trailing slashes are removed from baseURL
@@ -37,7 +34,7 @@ interface RetryConfig extends AxiosRequestConfig {
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 25000, // 25 seconds for Fabric SQL analytics queries
+  timeout: 30000, // 30 seconds for Fabric SQL analytics queries & Render wake-up
   headers: {
     "Content-Type": "application/json",
     Accept: "application/json",
@@ -47,15 +44,19 @@ export const apiClient = axios.create({
 // Request interceptor: normalize endpoint paths and strip empty query params
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    // If url does not start with /api and is not an absolute URL, prepend /api
+    // If url does not start with http:// or https://, normalize path and prevent duplicate /api
     if (
       config.url &&
       !config.url.startsWith("http://") &&
       !config.url.startsWith("https://")
     ) {
-      if (!config.url.startsWith("/api")) {
-        config.url = `/api${config.url.startsWith("/") ? "" : "/"}${config.url}`;
+      let normalized = config.url.replace(/^\/+/, "/");
+      if (normalized.startsWith("/api/api/")) {
+        normalized = normalized.replace(/^\/api\/api\//, "/api/");
+      } else if (!normalized.startsWith("/api/")) {
+        normalized = `/api${normalized}`;
       }
+      config.url = normalized;
     }
 
     // Clean up empty params
@@ -98,7 +99,7 @@ apiClient.interceptors.response.use(
 
       if (config._retryCount < MAX_RETRIES) {
         config._retryCount += 1;
-        const delayMs = config._retryCount * 1000;
+        const delayMs = config._retryCount * 1500;
         await new Promise((resolve) => setTimeout(resolve, delayMs));
         return apiClient(config as InternalAxiosRequestConfig);
       }
@@ -108,23 +109,39 @@ apiClient.interceptors.response.use(
     let message = "An unexpected network error occurred.";
 
     if (error.response) {
+      const status = error.response.status;
       const data = error.response.data;
-      if (typeof data?.detail === "string") {
+
+      if (status === 404) {
+        message = "The requested weather data endpoint was not found.";
+      } else if (status === 400 || status === 422) {
+        if (typeof data?.detail === "string") {
+          message = data.detail;
+        } else if (Array.isArray(data?.detail)) {
+          message = data.detail
+            .map((item: { msg?: string }) => item.msg || "Invalid parameter")
+            .join(", ");
+        } else {
+          message = "Invalid request parameters provided.";
+        }
+      } else if (status === 401 || status === 403) {
+        message = "Access to the requested weather intelligence resource was denied.";
+      } else if (status === 502 || status === 503 || status === 504) {
+        message = `The cloud weather service is waking up or temporarily unavailable (HTTP ${status}). On Render free tier, spin-up from sleep takes ~50s. Please retry in a few moments.`;
+      } else if (status >= 500) {
+        message = `Weather analytics service encountered an internal error (HTTP ${status}). Please retry shortly.`;
+      } else if (typeof data?.detail === "string") {
         message = data.detail;
-      } else if (Array.isArray(data?.detail)) {
-        message = data.detail
-          .map((item: { msg?: string }) => item.msg || "Validation error")
-          .join(", ");
       } else if (data?.message) {
         message = data.message;
       } else {
-        message = `Server responded with status ${error.response.status}`;
+        message = `Server responded with status ${status}`;
       }
-    } else if (error.code === "ECONNABORTED") {
+    } else if (error.code === "ECONNABORTED" || error.message?.includes("timeout")) {
       message =
-        "Lakehouse query timed out. The backend is processing or Microsoft Fabric is warming up.";
-    } else if (error.request) {
-      message = `Unable to reach the TN Weather Intelligence API server at ${API_BASE_URL}. Please verify the backend service is running.`;
+        "Query timed out. Microsoft Fabric or the analytics engine took too long to respond. The service may be warming up; please retry.";
+    } else if (error.request || error.code === "ERR_NETWORK") {
+      message = `Unable to reach the TN Weather Intelligence API server at ${API_BASE_URL}. If the backend is waking up from sleep on Render, it takes ~50 seconds. Please wait a moment and click retry.`;
     } else if (error.message) {
       message = error.message;
     }

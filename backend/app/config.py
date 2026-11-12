@@ -113,14 +113,21 @@ class Settings(BaseSettings):
 
     # Application Settings
     cors_origins: str = Field(
-        default="http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000,https://ai-weather-intelligence.onrender.com",
+        default=(
+            "https://ai-weather-intelligence-1.onrender.com,"
+            "https://ai-weather-intelligence.onrender.com,"
+            "http://localhost:5173,"
+            "http://127.0.0.1:5173,"
+            "http://localhost:3000,"
+            "http://127.0.0.1:3000"
+        ),
         validation_alias=AliasChoices("CORS_ORIGINS", "ALLOWED_ORIGINS"),
         description="Comma-separated list of allowed CORS origins",
     )
     cors_origin_regex: Optional[str] = Field(
-        default=r"https://.*\.onrender\.com",
+        default=r"^https://ai-weather-intelligence(-\w+)?\.onrender\.com$",
         validation_alias=AliasChoices("CORS_ORIGIN_REGEX"),
-        description="Regex pattern for allowed CORS origins (e.g. all onrender.com subdomains)",
+        description="Regex pattern for allowed CORS origins (e.g. Render production domains)",
     )
     log_level: str = Field(
         default="INFO",
