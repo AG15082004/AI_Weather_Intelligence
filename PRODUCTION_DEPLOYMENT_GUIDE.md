@@ -155,3 +155,4 @@ Execute the following checks after any deployment:
 - [ ] **CORS Verification**: Inspect browser developer console network requests to ensure preflight `OPTIONS` requests receive HTTP 200 with `Access-Control-Allow-Origin`.
 - [ ] **AI Chat Test**: Send a query on `/ai-assistant` (e.g., "What is the weather in Chennai?"). Ensure a grounded response with source metadata is returned.
 - [ ] **Security Verification**: Attempt to POST `/api/monitoring/cache/clear` without an API key. Verify it responds with HTTP 401 Unauthorized.
+

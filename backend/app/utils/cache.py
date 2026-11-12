@@ -32,7 +32,7 @@ class TTLCache:
         """
         self._ttl = ttl_seconds or get_settings().cache_ttl_seconds
         self._max_entries = max_entries
-        self._cache: OrderedDict[str, Tuple[Any, float]] = OrderedDict()
+        self._cache: OrderedDict[str, Tuple[Any, float, float]] = OrderedDict()
         self._lock = threading.Lock()
 
         # Telemetry metrics
@@ -51,7 +51,7 @@ class TTLCache:
                 self.misses += 1
                 return None
 
-            value, expiry = self._cache[key]
+            value, expiry, _created_at = self._cache[key]
             now = time.time()
             if now > expiry:
                 del self._cache[key]
@@ -63,10 +63,46 @@ class TTLCache:
             self.hits += 1
             return value
 
+    def get_with_metadata(
+        self, key: str, allow_stale: bool = False, max_stale_seconds: float = 86400.0
+    ) -> Optional[Tuple[Any, float, float, bool]]:
+        """Retrieve cached value with creation time, expiry, and staleness flag.
+
+        Args:
+            key: Cache key.
+            allow_stale: Whether to return expired entries for graceful degraded mode.
+            max_stale_seconds: Maximum age beyond expiry to permit stale retrieval.
+
+        Returns:
+            Tuple of (value, created_at, expiry, is_stale) or None if missing or past max_stale.
+        """
+        with self._lock:
+            if key not in self._cache:
+                self.misses += 1
+                return None
+
+            value, expiry, created_at = self._cache[key]
+            now = time.time()
+            is_expired = now > expiry
+
+            if is_expired:
+                if not allow_stale or (now - expiry) > max_stale_seconds:
+                    del self._cache[key]
+                    self.misses += 1
+                    return None
+                # Allowed stale retrieval during outage
+                self.hits += 1
+                return value, created_at, expiry, True
+
+            self._cache.move_to_end(key)
+            self.hits += 1
+            return value, created_at, expiry, False
+
     def set(self, key: str, value: Any, ttl_seconds: Optional[int] = None) -> None:
         """Store a value in the cache with bounded capacity enforcement."""
         ttl = ttl_seconds if ttl_seconds is not None else self._ttl
-        expiry = time.time() + ttl
+        now = time.time()
+        expiry = now + ttl
 
         with self._lock:
             # Enforce max entries bound (evict oldest if full)
@@ -74,7 +110,7 @@ class TTLCache:
                 self._cache.popitem(last=False)
                 self.evictions += 1
 
-            self._cache[key] = (value, expiry)
+            self._cache[key] = (value, expiry, now)
             self._cache.move_to_end(key)
 
     def clear(self) -> int:

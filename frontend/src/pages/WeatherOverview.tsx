@@ -20,6 +20,7 @@ import { LoadingSkeleton } from "@/components/common/LoadingSkeleton";
 import { ErrorState } from "@/components/common/ErrorState";
 import { EmptyState } from "@/components/common/EmptyState";
 import { FabricStatusBanner } from "@/components/common/FabricStatusBanner";
+import { DataReliabilityStatus } from "@/components/common/DataReliabilityStatus";
 import { OperationalMonitoringCard } from "@/components/common/OperationalMonitoringCard";
 import { TemperatureChart } from "@/components/charts/TemperatureChart";
 import { RainfallChart } from "@/components/charts/RainfallChart";
@@ -65,8 +66,10 @@ export function WeatherOverview() {
     );
   }
 
-  const formatVal = (val: number | null | undefined, unit: string) =>
-    val != null ? `${val.toFixed(1)}${unit}` : "Unmeasured";
+  const formatVal = (val: number | null | undefined, unit: string) => {
+    if (response?.data_status === "UNAVAILABLE") return "Data Offline";
+    return val != null ? `${val.toFixed(1)}${unit}` : "N/A";
+  };
 
   const rainfallQuality = activeOverview?.rainfall_quality;
 
@@ -123,6 +126,18 @@ export function WeatherOverview() {
         onRefresh={() => void refetch()}
       />
 
+      {/* Centralized Phase 9 Data Reliability & Freshness Indicator */}
+      <DataReliabilityStatus
+        status={response?.data_status}
+        dataSource={response?.data_source}
+        lastRefresh={response?.last_successful_refresh}
+        dataAgeSeconds={response?.data_age_seconds}
+        isStale={response?.is_stale}
+        warning={response?.warning}
+        onRefresh={() => void refetch()}
+        isRefreshing={loading}
+      />
+
       {/* Operational Observability & Health Monitoring */}
       <OperationalMonitoringCard />
 
@@ -159,10 +174,12 @@ export function WeatherOverview() {
         <KPICard
           title="Total Rainfall"
           value={
-            activeOverview?.total_rainfall !== null &&
-            activeOverview?.total_rainfall !== undefined
-              ? `${activeOverview.total_rainfall.toFixed(1)} mm`
-              : "Unmeasured"
+            response?.data_status === "UNAVAILABLE"
+              ? "Data Offline"
+              : activeOverview?.total_rainfall !== null &&
+                activeOverview?.total_rainfall !== undefined
+                ? `${activeOverview.total_rainfall.toFixed(1)} mm`
+                : "N/A"
           }
           subtitle={
             rainfallQuality

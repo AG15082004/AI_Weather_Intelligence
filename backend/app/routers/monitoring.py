@@ -10,6 +10,7 @@ import structlog
 
 from app.config import get_settings
 from app.services.ai_service import AIService
+from app.services.data_reliability_service import data_reliability_service
 from app.services.metrics_service import metrics_service
 from app.utils.cache import shared_cache
 from app.utils.security import verify_admin_key
@@ -60,6 +61,7 @@ async def get_operational_status() -> Dict[str, Any]:
         },
         "cache": shared_cache.get_stats(),
         "data_freshness": summary["data_freshness"],
+        "data_reliability": data_reliability_service.get_summary(),
     }
 
 

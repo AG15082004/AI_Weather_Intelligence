@@ -216,3 +216,4 @@ The Tamil Nadu Weather Intelligence Platform has achieved production candidate q
 1. **Azure Entra ID Tenant Consent**: Obtain administrator permission to register the Service Principal for `lh_tn_weather_intelligence`.
 2. **Environment Secret Injection**: Once approved, set `FABRIC_AUTH_MODE=service_principal`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET` in the Render dashboard.
 3. **Upgrade Render Tier (Optional)**: If sub-second cold starts are required, upgrade from Render Free Tier to a Starter Web Service to disable sleep after inactivity.
+

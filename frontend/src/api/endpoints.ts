@@ -7,11 +7,14 @@ import type {
   CurrentWeather,
   DashboardSpec,
   DashboardWidget,
+  DataReliabilityMetadata,
+  DataStatus,
   DateRangeParams,
   DistrictWeather,
   PeriodComparisonData,
   RainfallData,
   RainfallQualityMetadata,
+  ReliabilitySummary,
   TemperatureData,
   WeatherOverview,
 } from "@/types";
@@ -244,6 +247,13 @@ export async function getOverview(
     data: overview,
     message: raw.message ? toStr(raw.message) : undefined,
     source: raw.source ? toStr(raw.source) : undefined,
+    data_source: raw.data_source ? toStr(raw.data_source) : undefined,
+    data_status: raw.data_status as DataStatus | undefined,
+    last_successful_refresh: raw.last_successful_refresh ? toStr(raw.last_successful_refresh) : undefined,
+    data_age_seconds: raw.data_age_seconds != null ? Number(raw.data_age_seconds) : undefined,
+    is_stale: Boolean(raw.is_stale),
+    warning: raw.warning ? toStr(raw.warning) : undefined,
+    reliability: raw.reliability as DataReliabilityMetadata | undefined,
     filters: raw.filters as Record<string, string | null> | undefined,
   };
 }
@@ -530,6 +540,7 @@ export interface OperationalStatus {
     total_districts: number;
     coverage_pct: number;
   };
+  data_reliability?: ReliabilitySummary;
 }
 
 export async function getOperationalStatus(): Promise<OperationalStatus> {

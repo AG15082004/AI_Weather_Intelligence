@@ -121,6 +121,9 @@ class AIService:
                 "source": "Microsoft Fabric Lakehouse",
                 "error": str(exc),
                 "data": [],
+                "data_status": "UNAVAILABLE",
+                "data_source": "none",
+                "is_stale": True,
                 "observation_timestamp": "Unavailable",
             }
 
@@ -168,6 +171,10 @@ class AIService:
                 "data_points": len(query_result.get("data", [])),
             },
             "chart": chart_dict,
+            "data_status": query_result.get("data_status", "LIVE"),
+            "data_source": query_result.get("data_source", "microsoft_fabric"),
+            "is_stale": query_result.get("is_stale", False),
+            "warning": query_result.get("warning"),
             "follow_up_suggestions": suggestions,
         }
         return res

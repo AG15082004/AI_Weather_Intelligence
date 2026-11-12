@@ -74,3 +74,4 @@ Ollama Qwen3:4b requires a local GPU or CPU inference server. Render's free tier
 | Memory OOM on Backend | Low | Medium | Strict bounded cache (`max_entries=500`) + 1MB payload ceiling. |
 | Fabric SP Delay | Medium | Medium | Local Azure CLI gateway operates with zero downtime. |
 | LLM Token Exhaustion | None | None | 100% deterministic fallback; no paid token APIs used. |
+

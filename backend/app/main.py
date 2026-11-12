@@ -29,6 +29,7 @@ from app.routers import (
     monitoring,
 )
 from app.services.ai_service import AIService
+from app.services.data_reliability_service import data_reliability_service
 from app.services.metrics_service import metrics_service
 
 settings = get_settings()
@@ -196,6 +197,7 @@ async def health_check():
                 "ollama_available": ollama_health.get("available", False),
             },
             "data_freshness": summary["data_freshness"],
+            "data_reliability": data_reliability_service.get_summary(),
         },
     }
 

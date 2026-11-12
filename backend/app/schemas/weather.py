@@ -140,6 +140,18 @@ class PeriodComparisonData(BaseModel):
     humidity: MetricDelta
 
 
+class DataReliabilityMetadata(BaseModel):
+    """Data source reliability and freshness metadata."""
+
+    data_source: str = "microsoft_fabric"
+    data_status: str = "LIVE"  # LIVE, CACHED, FALLBACK, UNAVAILABLE
+    last_successful_refresh: Optional[str] = None
+    latest_observation_timestamp: Optional[str] = None
+    data_age_seconds: Optional[float] = None
+    is_stale: bool = False
+    warning: Optional[str] = None
+
+
 class StandardResponse(BaseModel):
     """Standardized API response wrapper."""
 
@@ -147,5 +159,11 @@ class StandardResponse(BaseModel):
     data: Any
     message: Optional[str] = None
     timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
+    data_source: Optional[str] = None
+    data_status: Optional[str] = None
+    last_successful_refresh: Optional[str] = None
+    data_age_seconds: Optional[float] = None
+    is_stale: Optional[bool] = None
+    warning: Optional[str] = None
     filters: Optional[Dict[str, Any]] = None
     metadata: Optional[Dict[str, Any]] = None

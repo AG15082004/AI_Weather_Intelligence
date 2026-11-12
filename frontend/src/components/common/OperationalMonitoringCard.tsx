@@ -197,6 +197,14 @@ export function OperationalMonitoringCard() {
               </span>
               <span>{status.data_freshness.latest_observation || "Recent"}</span>
             </div>
+            {status.data_reliability && (
+              <div className="flex items-baseline justify-between text-[11px] text-slate-400">
+                <span>Status:</span>
+                <span className="font-semibold text-slate-700">
+                  {status.data_reliability.overall_status} ({status.data_reliability.active_mode})
+                </span>
+              </div>
+            )}
           </div>
         </div>
 

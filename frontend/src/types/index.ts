@@ -1,9 +1,52 @@
+export type DataStatus = "LIVE" | "CACHED" | "FALLBACK" | "UNAVAILABLE";
+
+export interface DataReliabilityMetadata {
+  data_source: string;
+  data_status: DataStatus;
+  last_successful_refresh?: string | null;
+  latest_observation_timestamp?: string | null;
+  data_age_seconds?: number | null;
+  is_stale: boolean;
+  warning?: string | null;
+}
+
+export interface DatasetReliability {
+  dataset_name: string;
+  status: DataStatus;
+  last_successful_query?: string | null;
+  data_age_seconds?: number | null;
+  is_stale: boolean;
+  last_error?: string | null;
+  total_success_count: number;
+  total_failure_count: number;
+}
+
+export interface ReliabilitySummary {
+  overall_status: DataStatus;
+  overall_source: string;
+  data_freshness_status: string;
+  last_successful_refresh?: string | null;
+  is_stale: boolean;
+  stale_datasets_count: number;
+  offline_datasets_count: number;
+  active_mode: "nominal" | "degraded";
+  fabric_auth_state: string;
+  datasets: Record<string, DatasetReliability>;
+}
+
 export interface ApiResponse<T> {
   data: T;
   status: string;
   message?: string;
   timestamp?: string;
   source?: string;
+  data_source?: string;
+  data_status?: DataStatus;
+  last_successful_refresh?: string | null;
+  data_age_seconds?: number | null;
+  is_stale?: boolean;
+  warning?: string | null;
+  reliability?: DataReliabilityMetadata;
   filters?: Record<string, string | null>;
   monthly_averages?: unknown[];
   distribution?: Record<string, unknown>;

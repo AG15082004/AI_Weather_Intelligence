@@ -223,8 +223,10 @@ class GroundedResponseGenerator:
                 llm_text = await self._call_ollama(prompt=user_prompt, system=system_prompt)
                 if llm_text and len(llm_text.strip()) > 15:
                     final_answer = llm_text.strip()
+                    data_status = query_result.get("data_status") or ("CACHED" if query_result.get("is_cached") else "LIVE")
+                    status_tag = f" [{data_status}]" if data_status in ("LIVE", "CACHED") else ""
                     if "Data source:" not in final_answer:
-                        final_answer += f"\n\n*Data source: {source} | Observation time: {timestamp} (IST)*"
+                        final_answer += f"\n\n*Data source: {source}{status_tag} | Observation time: {timestamp} (IST)*"
                     return final_answer, suggestions
             except Exception as exc:
                 log.warning(
@@ -377,7 +379,32 @@ class GroundedResponseGenerator:
         raw_source = res.get("source", "Live Weather Observations")
         source = self._clean_source_label(raw_source)
         timestamp = res.get("observation_timestamp", "Recent")
-        footer = f"\n\n*Data source: {source} | Observation time: {timestamp} (Asia/Kolkata IST)*"
+        data_status = res.get("data_status") or ("UNAVAILABLE" if res.get("error") else "CACHED" if res.get("is_cached") else "LIVE")
+        is_stale = res.get("is_stale", False)
+
+        # Check if source is completely unavailable (outage and no cached telemetry)
+        if (data_status == "UNAVAILABLE" or res.get("error")) and not res.get("data") and not res.get("rankings") and not res.get("comparison_rows") and not res.get("rows"):
+            if extracted.intent == "general_weather_question":
+                return (
+                    "**Tamil Nadu Meteorological Intelligence:**\n\n"
+                    "Tamil Nadu exhibits a diverse tropical climate characterized by two distinct monsoon cycles: "
+                    "the Southwest Monsoon (June–September) providing moderate precipitation mainly to the Western Ghats, "
+                    "and the prominent Northeast Monsoon (October–December) which delivers the bulk of statewide rainfall "
+                    "to coastal and interior districts. Coastal districts like Chennai, Cuddalore, and Nagapattinam regularly "
+                    "receive substantial rainfall from Bay of Bengal cyclonic circulations.\n\n"
+                    "*Note: Live telemetry from Microsoft Fabric is currently unavailable; displaying meteorological reference.*"
+                )
+            target = extracted.district or "Tamil Nadu"
+            return (
+                f"**Data Notice – Meteorological Source Unavailable:**\n\n"
+                f"Real-time observation data for **{target}** is currently unavailable because the Microsoft Fabric "
+                f"Lakehouse endpoint is unreachable and no previous cached observation is present in memory.\n\n"
+                f"*Data source: None (Microsoft Fabric Connection Deferred/Offline) | Zero fabricated metrics generated.*"
+            )
+
+        status_tag = f" [{data_status}]" if data_status in ("LIVE", "CACHED") else ""
+        stale_note = " *(Cached observation – may be stale)*" if is_stale else ""
+        footer = f"\n\n*Data source: {source}{status_tag}{stale_note} | Observation time: {timestamp} (Asia/Kolkata IST)*"
 
         # ---------------------------------------------------------------------
         # 1. Weather Ranking Intent
@@ -623,8 +650,7 @@ class GroundedResponseGenerator:
         # Generic fallback based on formatted facts
         return (
             f"Here is the verified weather intelligence for Tamil Nadu:\n\n"
-            f"{facts}\n\n"
-            f"*Data source: {source} | Observation time: {timestamp} (Asia/Kolkata IST)*"
+            f"{facts}{footer}"
         )
 
     def _build_follow_up_suggestions(self, extracted: ExtractedIntent) -> List[str]:
