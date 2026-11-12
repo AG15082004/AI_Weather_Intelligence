@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+pyodbc
+azure-identity
+python-dotenv
+pydantic
+pydantic-settings
+httpx
+structlog
+python-multipart
+tzdata
