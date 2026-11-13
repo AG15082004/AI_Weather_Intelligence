@@ -18,7 +18,7 @@ import {
 import { getCurrentWeather } from "@/api/endpoints";
 import { useApi } from "@/hooks/useApi";
 import { getSampleCurrentWeather } from "@/lib/sampleData";
-import { getIstTodayStr } from "@/lib/dateUtils";
+import { getIstTodayStr, getPresetDateRange } from "@/lib/dateUtils";
 import { DistrictFilter } from "@/components/common/DistrictFilter";
 import { LoadingSkeleton } from "@/components/common/LoadingSkeleton";
 import { ErrorState } from "@/components/common/ErrorState";
@@ -111,15 +111,17 @@ const TABLE_COLUMNS: DataTableColumn<CurrentWeatherType>[] = [
 ];
 
 export function CurrentWeather() {
-  const todayIst = getIstTodayStr(); // e.g. "2026-11-12"
-  const yesterdayIst = "2026-11-11";
+  const todayIst = getIstTodayStr();
+  const yesterdayIst = getPresetDateRange("yesterday").startDate;
 
-  const [selectedDate, setSelectedDate] = useState<string>(todayIst);
+  // Default to "" ("All" / latest real-time observations across all 38 districts)
+  const [selectedDate, setSelectedDate] = useState<string>("");
   const [district, setDistrict] = useState("all");
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
   const [previewSample, setPreviewSample] = useState(false);
 
+  const isAll = !selectedDate;
   const isToday = selectedDate === todayIst;
   const isYesterday = selectedDate === yesterdayIst;
 
@@ -176,6 +178,18 @@ export function CurrentWeather() {
             <div className="flex rounded-md bg-slate-100 p-0.5">
               <button
                 type="button"
+                onClick={() => setSelectedDate("")}
+                className={cn(
+                  "rounded px-3 py-1.5 text-xs font-semibold transition-colors",
+                  isAll
+                    ? "bg-sky-600 text-white shadow-xs"
+                    : "text-slate-600 hover:text-slate-900"
+                )}
+              >
+                All (Latest Snapshot)
+              </button>
+              <button
+                type="button"
                 onClick={() => setSelectedDate(todayIst)}
                 className={cn(
                   "rounded px-3 py-1.5 text-xs font-semibold transition-colors",
@@ -184,7 +198,7 @@ export function CurrentWeather() {
                     : "text-slate-600 hover:text-slate-900"
                 )}
               >
-                Today (Live Snapshot)
+                Today
               </button>
               <button
                 type="button"
@@ -196,7 +210,7 @@ export function CurrentWeather() {
                     : "text-slate-600 hover:text-slate-900"
                 )}
               >
-                Yesterday (Nov 11 Observations)
+                Yesterday
               </button>
             </div>
           </div>
@@ -223,13 +237,13 @@ export function CurrentWeather() {
             <Database className="size-4 text-sky-600" />
             <span>
               <strong>Data Source: </strong>
-              {isToday ? (
+              {isAll || isToday ? (
                 <span>
-                  Microsoft Fabric Lakehouse <code className="text-slate-800 font-semibold">[dbo].[gold_current_weather_latest]</code> (Live 3-hourly telemetry)
+                  Microsoft Fabric Lakehouse <code className="text-slate-800 font-semibold">[dbo].[gold_current_weather_latest]</code> (Live telemetry across all 38 districts)
                 </span>
               ) : (
                 <span>
-                  Microsoft Fabric Lakehouse <code className="text-slate-800 font-semibold">[dbo].[silver_weather_current]</code> (342 actual observation runs on {selectedDate})
+                  Microsoft Fabric Lakehouse <code className="text-slate-800 font-semibold">[dbo].[silver_weather_current]</code> (Actual observation runs on {selectedDate})
                 </span>
               )}
             </span>

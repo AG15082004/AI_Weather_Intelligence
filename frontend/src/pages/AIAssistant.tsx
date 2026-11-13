@@ -23,6 +23,7 @@ const SUGGESTED_PROMPTS = [
   "Which district is hottest today?",
   "Compare Chennai and Coimbatore weather.",
   "Show yesterday's rainfall across districts.",
+  "Show all-time temperature and rainfall trends across Tamil Nadu.",
   "Which districts have unhealthy AQI?",
   "Compare this month and last month temperature.",
   "Generate a Tamil Nadu weather bulletin report.",

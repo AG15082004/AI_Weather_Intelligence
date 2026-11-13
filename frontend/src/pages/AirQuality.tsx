@@ -140,11 +140,15 @@ export function AirQuality() {
         <DateRangeFilter
           startDate={startDate}
           endDate={endDate}
-          onStartDateChange={setStartDate}
-          onEndDateChange={setEndDate}
+          selectedDistrict={district}
+          onApply={(start, end) => {
+            setStartDate(start);
+            setEndDate(end);
+          }}
           onReset={() => {
             setStartDate("");
             setEndDate("");
+            setDistrict("all");
           }}
         />
       </div>

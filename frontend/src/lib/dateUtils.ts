@@ -9,6 +9,8 @@ export interface DateRange {
 }
 
 export type PresetKey =
+  | "all"
+  | "all_available"
   | "today"
   | "yesterday"
   | "last_7_days"
@@ -20,7 +22,6 @@ export type PresetKey =
   | "this_month"
   | "last_month"
   | "this_year"
-  | "all_available"
   | "custom";
 
 export interface PresetOption {
@@ -30,6 +31,7 @@ export interface PresetOption {
 }
 
 export const DATE_PRESETS: PresetOption[] = [
+  { key: "all", label: "All", description: "Complete historical data range across all observations" },
   { key: "today", label: "Today", description: "Current calendar date in IST" },
   { key: "yesterday", label: "Yesterday", description: "Previous calendar date in IST" },
   { key: "last_7_days", label: "Last 7 Days", description: "Past 7 days including today" },
@@ -41,7 +43,6 @@ export const DATE_PRESETS: PresetOption[] = [
   { key: "this_month", label: "This Month", description: "1st of current month through today" },
   { key: "last_month", label: "Last Month", description: "Full previous calendar month" },
   { key: "this_year", label: "This Year", description: "Jan 1 of current year through today" },
-  { key: "all_available", label: "All Available Data", description: "Earliest available observation through today" },
   { key: "custom", label: "Custom Range", description: "User specified date range" },
 ];
 
@@ -166,12 +167,13 @@ export function getPresetDateRange(preset: PresetKey): DateRange {
       return { startDate: toYmd(firstOfYear), endDate: todayStr };
     }
 
+    case "all":
     case "all_available":
-      return { startDate: "2026-01-01", endDate: todayStr };
+      return { startDate: "", endDate: "" };
 
     case "custom":
     default:
-      return { startDate: "2026-11-06", endDate: todayStr };
+      return { startDate: "", endDate: "" };
   }
 }
 
@@ -182,6 +184,9 @@ export function validateDateRange(
   startDate?: string,
   endDate?: string
 ): { valid: boolean; error?: string } {
+  if (!startDate && !endDate) {
+    return { valid: true };
+  }
   const todayStr = getIstTodayStr();
   if (startDate && startDate > todayStr) {
     return { valid: false, error: "Start date cannot be in the future (IST)." };
@@ -203,7 +208,7 @@ export function formatDateRange(
   startDate?: string,
   endDate?: string
 ): string {
-  if (!startDate && !endDate) return "All Available Time";
+  if (!startDate && !endDate) return "All Available Records";
   const options: Intl.DateTimeFormatOptions = {
     month: "long",
     day: "numeric",

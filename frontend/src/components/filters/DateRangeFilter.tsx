@@ -27,8 +27,8 @@ export interface DateFilterState {
 }
 
 export interface DateRangeFilterProps {
-  startDate: string;
-  endDate: string;
+  startDate?: string;
+  endDate?: string;
   onApply?: (start: string, end: string, preset?: PresetKey) => void;
   onStartDateChange?: (date: string) => void;
   onEndDateChange?: (date: string) => void;
@@ -41,8 +41,8 @@ export interface DateRangeFilterProps {
 }
 
 export function DateRangeFilter({
-  startDate,
-  endDate,
+  startDate = "",
+  endDate = "",
   onApply,
   onStartDateChange,
   onEndDateChange,
@@ -58,13 +58,18 @@ export function DateRangeFilter({
   // Local draft state for inputs before applying
   const [localStart, setLocalStart] = useState(startDate);
   const [localEnd, setLocalEnd] = useState(endDate);
-  const [activePreset, setActivePreset] = useState<PresetKey>("last_7_days");
+  const [activePreset, setActivePreset] = useState<PresetKey>(
+    !startDate && !endDate ? "all" : "custom"
+  );
   const [validationError, setValidationError] = useState<string | null>(null);
 
   // Sync with incoming props if changed outside
   React.useEffect(() => {
     setLocalStart(startDate);
     setLocalEnd(endDate);
+    if (!startDate && !endDate) {
+      setActivePreset("all");
+    }
   }, [startDate, endDate]);
 
   const handlePresetChange = (presetKey: PresetKey) => {
@@ -82,6 +87,13 @@ export function DateRangeFilter({
   };
 
   const handleApply = () => {
+    if (activePreset === "all") {
+      setValidationError(null);
+      onStartDateChange?.("");
+      onEndDateChange?.("");
+      onApply?.("", "", "all");
+      return;
+    }
     const val = validateDateRange(localStart, localEnd);
     if (!val.valid) {
       setValidationError(val.error || "Invalid date range");
@@ -94,17 +106,17 @@ export function DateRangeFilter({
   };
 
   const handleReset = () => {
-    const defaultRange = getPresetDateRange("last_7_days");
-    setActivePreset("last_7_days");
+    const defaultRange = getPresetDateRange("all");
+    setActivePreset("all");
     setLocalStart(defaultRange.startDate);
     setLocalEnd(defaultRange.endDate);
     setValidationError(null);
+    onStartDateChange?.("");
+    onEndDateChange?.("");
     if (onReset) {
       onReset();
     } else {
-      onStartDateChange?.(defaultRange.startDate);
-      onEndDateChange?.(defaultRange.endDate);
-      onApply?.(defaultRange.startDate, defaultRange.endDate, "last_7_days");
+      onApply?.(defaultRange.startDate, defaultRange.endDate, "all");
     }
   };
 
@@ -138,32 +150,50 @@ export function DateRangeFilter({
 
         {/* Start Date */}
         <div className="flex items-center gap-1.5">
-          <label htmlFor="range-start-date" className="text-xs text-slate-500">
+          <label
+            htmlFor="range-start-date"
+            className={cn(
+              "text-xs",
+              activePreset === "all" ? "text-slate-400" : "text-slate-500"
+            )}
+          >
             From:
           </label>
           <Input
             id="range-start-date"
             type="date"
             value={localStart}
+            disabled={activePreset === "all"}
             max={localEnd || todayIst}
             onChange={(e) => {
               setLocalStart(e.target.value);
               setActivePreset("custom");
               setValidationError(null);
             }}
-            className="h-8 w-35 rounded-md border-slate-300 bg-white px-2 text-xs"
+            className={cn(
+              "h-8 w-35 rounded-md border-slate-300 bg-white px-2 text-xs",
+              activePreset === "all" &&
+                "cursor-not-allowed border-slate-200 bg-slate-100/70 text-slate-400"
+            )}
           />
         </div>
 
         {/* End Date */}
         <div className="flex items-center gap-1.5">
-          <label htmlFor="range-end-date" className="text-xs text-slate-500">
+          <label
+            htmlFor="range-end-date"
+            className={cn(
+              "text-xs",
+              activePreset === "all" ? "text-slate-400" : "text-slate-500"
+            )}
+          >
             To:
           </label>
           <Input
             id="range-end-date"
             type="date"
             value={localEnd}
+            disabled={activePreset === "all"}
             min={localStart}
             max={todayIst}
             onChange={(e) => {
@@ -171,7 +201,11 @@ export function DateRangeFilter({
               setActivePreset("custom");
               setValidationError(null);
             }}
-            className="h-8 w-35 rounded-md border-slate-300 bg-white px-2 text-xs"
+            className={cn(
+              "h-8 w-35 rounded-md border-slate-300 bg-white px-2 text-xs",
+              activePreset === "all" &&
+                "cursor-not-allowed border-slate-200 bg-slate-100/70 text-slate-400"
+            )}
           />
         </div>
 
@@ -191,7 +225,7 @@ export function DateRangeFilter({
             size="sm"
             onClick={handleReset}
             className="h-8 gap-1 px-2 text-xs text-slate-500 hover:text-slate-800"
-            title="Reset to Last 7 Days"
+            title="Reset to All"
           >
             <RotateCcw className="size-3" />
             Reset

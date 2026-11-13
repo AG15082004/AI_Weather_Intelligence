@@ -23,6 +23,7 @@ import { KPICard } from "@/components/common/KPICard";
 import { ChartCard } from "@/components/common/ChartCard";
 import { DataTable, type DataTableColumn } from "@/components/common/DataTable";
 import { DistrictFilter } from "@/components/common/DistrictFilter";
+import { DateRangeFilter } from "@/components/filters/DateRangeFilter";
 import { TemperatureChart } from "@/components/charts/TemperatureChart";
 import { RainfallChart } from "@/components/charts/RainfallChart";
 import { HumidityChart } from "@/components/charts/HumidityChart";
@@ -302,6 +303,8 @@ function renderRichWidget(
 export function DashboardBuilder() {
   const [prompt, setPrompt] = useState("");
   const [selectedDistrict, setSelectedDistrict] = useState("all");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [presets, setPresets] = useState<DashboardSpec[]>(FALLBACK_PRESETS);
   const [activeSpec, setActiveSpec] = useState<DashboardSpec>(
     FALLBACK_PRESETS[0]
@@ -450,6 +453,23 @@ export function DashboardBuilder() {
                 {preset.title}
               </Button>
             ))}
+          </div>
+
+          <div className="pt-2">
+            <DateRangeFilter
+              startDate={startDate}
+              endDate={endDate}
+              selectedDistrict={selectedDistrict}
+              onApply={(start, end) => {
+                setStartDate(start);
+                setEndDate(end);
+              }}
+              onReset={() => {
+                setStartDate("");
+                setEndDate("");
+                setSelectedDistrict("all");
+              }}
+            />
           </div>
         </CardContent>
       </Card>

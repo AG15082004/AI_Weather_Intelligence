@@ -76,8 +76,8 @@ export function DistrictIntelligence() {
   const [selectedDistrict, setSelectedDistrict] = useState<string>("Chennai");
   const [districtSearch, setDistrictSearch] = useState("");
   const [previewSample, setPreviewSample] = useState(false);
-  const [startDate, setStartDate] = useState("2026-11-06");
-  const [endDate, setEndDate] = useState("2026-11-12");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
   const dateParams = useMemo(
     () => ({ start_date: startDate, end_date: endDate }),
@@ -211,8 +211,8 @@ export function DistrictIntelligence() {
             setEndDate(end);
           }}
           onReset={() => {
-            setStartDate("2026-11-06");
-            setEndDate("2026-11-12");
+            setStartDate("");
+            setEndDate("");
           }}
         />
       </div>

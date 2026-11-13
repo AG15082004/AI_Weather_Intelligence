@@ -56,8 +56,8 @@ const HISTORICAL_COLUMNS: DataTableColumn<TemperatureData>[] = [
 
 export function HistoricalAnalytics() {
   const [district, setDistrict] = useState("all");
-  const [startDate, setStartDate] = useState("2026-01-01");
-  const [endDate, setEndDate] = useState("2026-11-03");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [previewSample, setPreviewSample] = useState(false);
 
   const params: DateRangeParams = {
@@ -143,8 +143,9 @@ export function HistoricalAnalytics() {
             setEndDate(end);
           }}
           onReset={() => {
-            setStartDate("2026-01-01");
-            setEndDate("2026-11-12");
+            setStartDate("");
+            setEndDate("");
+            setDistrict("all");
           }}
         />
       </div>

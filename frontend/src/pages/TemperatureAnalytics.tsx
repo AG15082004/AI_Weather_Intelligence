@@ -63,8 +63,8 @@ const COLUMNS: DataTableColumn<TemperatureData>[] = [
 
 export function TemperatureAnalytics() {
   const [district, setDistrict] = useState("all");
-  const [startDate, setStartDate] = useState("2026-11-06");
-  const [endDate, setEndDate] = useState("2026-11-12");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [previewSample, setPreviewSample] = useState(false);
 
   const params: DateRangeParams = {
@@ -168,8 +168,9 @@ export function TemperatureAnalytics() {
             setEndDate(end);
           }}
           onReset={() => {
-            setStartDate("2026-11-06");
-            setEndDate("2026-11-12");
+            setStartDate("");
+            setEndDate("");
+            setDistrict("all");
           }}
         />
       </div>
