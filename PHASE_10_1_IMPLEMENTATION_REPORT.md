@@ -185,3 +185,4 @@ OPENAI_MAX_OUTPUT_TOKENS=1024
 
 1. **Render Free Tier Ephemeral Memory:** In-memory token counters reset if the free-tier service sleeps after inactivity. Persistent token accumulation across restarts would require a persistent datastore if needed in future releases.
 2. **Fabric Authentication on Render:** Azure CLI authentication works in local environments; cloud authentication remains deferred pending tenant admin permissions.
+

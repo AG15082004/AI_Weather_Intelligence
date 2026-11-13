@@ -29,3 +29,16 @@ async def get_current_weather(
     """
     log.info("current_weather_requested", district=district, date=str(date) if date else None)
     return await weather_service.get_current_weather(district=district, date_param=date)
+
+
+weather_current_router = APIRouter(prefix="/weather/current", tags=["current weather"])
+
+
+@weather_current_router.get("", include_in_schema=False)
+@weather_current_router.get("/")
+async def get_weather_current_alias(
+    district: Optional[str] = Query(None, description="Filter by district name"),
+    date: Optional[date] = Query(None, description="Filter by observation date (YYYY-MM-DD)"),
+):
+    """Compatibility alias endpoint for /api/weather/current."""
+    return await get_current_weather(district=district, date=date)

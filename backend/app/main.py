@@ -9,7 +9,8 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import structlog
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
@@ -114,6 +115,26 @@ async def options_catchall(full_path: str):
     """Fallback handler for direct non-CORS OPTIONS probes."""
     return Response(status_code=200)
 
+
+@app.exception_handler(Exception)
+async def global_unhandled_exception_handler(request: Request, exc: Exception):
+    """Global exception handler guaranteeing JSON error schema and CORS header preservation."""
+    log.error(
+        "unhandled_application_exception",
+        path=request.url.path,
+        method=request.method,
+        error_type=type(exc).__name__,
+        error=str(exc),
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "status": "error",
+            "message": "An internal server error occurred while processing your request.",
+            "path": request.url.path,
+        },
+    )
+
 # ---------------------------------------------------------------------------
 # Routers — all under /api
 # ---------------------------------------------------------------------------
@@ -122,6 +143,7 @@ app.include_router(temperature.router, prefix="/api")
 app.include_router(rainfall.router, prefix="/api")
 app.include_router(districts.router, prefix="/api")
 app.include_router(current_weather.router, prefix="/api")
+app.include_router(current_weather.weather_current_router, prefix="/api")
 app.include_router(air_quality.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
 app.include_router(dashboard_builder.router, prefix="/api")
