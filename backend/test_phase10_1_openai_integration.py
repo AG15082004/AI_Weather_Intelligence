@@ -21,9 +21,28 @@ All external API calls are strictly mocked - zero live API spend.
 """
 
 import asyncio
+import sys
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
+
+try:
+    import openai
+except ImportError:
+    class MockOpenAIError(Exception):
+        def __init__(self, message="", response=None, body=None):
+            super().__init__(message)
+            self.response = response or MagicMock()
+            self.body = body or {}
+
+    class MockOpenAIModule:
+        AuthenticationError = MockOpenAIError
+        APITimeoutError = MockOpenAIError
+        RateLimitError = MockOpenAIError
+        APIError = MockOpenAIError
+
+    openai = MockOpenAIModule()
+    sys.modules["openai"] = openai
 
 from fastapi.testclient import TestClient
 

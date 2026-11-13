@@ -126,7 +126,7 @@ class TestFabricRenderConnectivity(unittest.TestCase):
 
     # 5. Render With Complete Service Principal Configuration
     def test_05_render_with_complete_service_principal(self):
-        """In production when SPN keys are present, service principal mode is selected."""
+        """In production when SPN keys are present, service principal mode is selected and token passed via attr 1256."""
         settings = Settings(
             app_env="production",
             fabric_server="test-sql.fabric.microsoft.com",
@@ -138,16 +138,24 @@ class TestFabricRenderConnectivity(unittest.TestCase):
         )
         service = FabricConnectionService(settings)
 
-        with patch.object(service, "is_driver_available", return_value=True):
+        with patch.object(service, "is_driver_available", return_value=True), \
+             patch.object(service, "get_service_principal_token_struct", return_value=b"\x20\x00\x00\x00mock_token_struct"):
             mode, reason = service.resolve_auth_mode()
             self.assertEqual(mode, "service_principal")
             self.assertEqual(reason, "production_service_principal_ready")
 
             conn_str, attrs = service.build_connection_params()
-            self.assertIsNone(attrs)
-            self.assertIn("Authentication=ActiveDirectoryServicePrincipal", conn_str)
-            self.assertIn("UID=11111111-2222-3333-4444-555555555555", conn_str)
-            self.assertIn("PWD=secret-value-abcdef123456", conn_str)
+            self.assertIsNotNone(attrs)
+            self.assertIn(1256, attrs)
+            self.assertEqual(attrs[1256], b"\x20\x00\x00\x00mock_token_struct")
+            # Connection string must NOT contain UID, PWD, or Authentication keywords
+            self.assertNotIn("Authentication=", conn_str)
+            self.assertNotIn("UID=", conn_str)
+            self.assertNotIn("PWD=", conn_str)
+            self.assertIn("Driver={ODBC Driver 18 for SQL Server}", conn_str)
+            self.assertIn("Server=test-sql.fabric.microsoft.com", conn_str)
+            self.assertIn("Database=lh_tn_weather_intelligence", conn_str)
+            self.assertIn("TrustServerCertificate=yes", conn_str)
 
     # 6. Successful SQL Query (Mocked)
     def test_06_successful_sql_query(self):
@@ -245,6 +253,66 @@ class TestFabricRenderConnectivity(unittest.TestCase):
             data = response.json()
             self.assertEqual(data.get("data_status"), "CACHED")
             self.assertEqual(data["data"]["avg_temperature"], 29.5)
+
+    # 9. Token Struct Packaging Specification
+    def test_09_token_struct_packaging(self):
+        """Token structure must be packed with 4-byte unsigned int length prefix and UTF-16-LE bytes."""
+        import struct
+        import time
+        settings = Settings(
+            fabric_server="test-sql.fabric.microsoft.com",
+            fabric_tenant_id="test-tenant",
+            fabric_client_id="test-client",
+            fabric_client_secret="test-secret",
+        )
+        service = FabricConnectionService(settings)
+
+        mock_token_str = "mock-access-token-12345"
+        mock_token_obj = MagicMock(token=mock_token_str, expires_on=time.time() + 3600)
+
+        with patch("azure.identity.ClientSecretCredential.get_token", return_value=mock_token_obj):
+            token_struct = service.get_service_principal_token_struct()
+            expected_bytes = mock_token_str.encode("utf-16-le")
+            expected_struct = struct.pack(f"<I{len(expected_bytes)}s", len(expected_bytes), expected_bytes)
+            self.assertEqual(token_struct, expected_struct)
+
+    # 10. Environment Aliases and Whitespace Trimming
+    def test_10_environment_whitespace_and_aliases(self):
+        """Settings must trim whitespace and map ENVIRONMENT alias to app_env."""
+        with patch.dict(os.environ, {
+            "ENVIRONMENT": "  production  ",
+            "FABRIC_SERVER": "  test.datawarehouse.fabric.microsoft.com  ",
+            "FABRIC_CLIENT_ID": "  test-sp-client-id  ",
+            "FABRIC_CLIENT_SECRET": "  test-sp-secret  ",
+            "FABRIC_TENANT_ID": "  test-sp-tenant  ",
+            "FABRIC_TRUST_SERVER_CERTIFICATE": "  yes  ",
+        }):
+            s = Settings()
+            self.assertEqual(s.app_env, "production")
+            self.assertEqual(s.fabric_server, "test.datawarehouse.fabric.microsoft.com")
+            self.assertEqual(s.fabric_client_id, "test-sp-client-id")
+            self.assertEqual(s.fabric_client_secret, "test-sp-secret")
+            self.assertEqual(s.fabric_tenant_id, "test-sp-tenant")
+            self.assertEqual(s.fabric_trust_server_certificate, "yes")
+
+    # 11. Operational Status Reports Production
+    def test_11_operational_status_reports_production(self):
+        """GET /api/monitoring/operational-status must report production when ENVIRONMENT=production."""
+        with patch.dict(os.environ, {"ENVIRONMENT": "production"}):
+            with patch("app.routers.monitoring.get_settings", return_value=Settings(app_env="production")):
+                resp = self.client.get("/api/monitoring/operational-status")
+                self.assertEqual(resp.status_code, 200)
+                data = resp.json()
+                self.assertEqual(data["environment"], "production")
+
+    # 12. Multi-Step Diagnostics Endpoint
+    def test_12_diagnostics_endpoint_distinguishes_deferred(self):
+        """GET /api/fabric/diagnostics returns 503 and clear code when deferred."""
+        with patch.object(FabricConnectionService, "is_driver_available", return_value=False):
+            resp = self.client.get("/api/fabric/diagnostics")
+            self.assertEqual(resp.status_code, 503)
+            data = resp.json()
+            self.assertIn(data.get("code"), ["MISSING_DRIVER", "CONFIG_DEFERRED", "MISSING_CONFIG"])
 
 
 if __name__ == "__main__":

@@ -27,7 +27,10 @@ RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor
     && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. Install Python dependencies
+# 3. Fix OpenSSL 3.0 / Debian 12 TLS negotiation for Microsoft ODBC Driver 18 (resolves TCP Error code 0x2746 / 10054)
+RUN sed -i 's/SECLEVEL=2/SECLEVEL=1/g' /etc/ssl/openssl.cnf || true
+
+# 4. Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt

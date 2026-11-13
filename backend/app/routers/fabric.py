@@ -53,6 +53,21 @@ async def fabric_health(response: Response):
     return result
 
 
+@router.get("/diagnostics")
+async def fabric_diagnostics(response: Response) -> Dict[str, Any]:
+    """Execute complete multi-step Fabric connectivity diagnostics.
+
+    Inspects configuration, driver availability, TCP network reachability (port 1433),
+    token acquisition, SQL query execution (SELECT 1), and Gold tables accessibility.
+    Never exposes secrets or credentials.
+    """
+    log.info("fabric_diagnostics_requested")
+    diag_result = await fabric_conn.diagnose_fabric_connectivity()
+    if diag_result.get("status") != "connected":
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return diag_result
+
+
 @router.get("/schema")
 async def get_fabric_schema():
     """Return the discovered Fabric Lakehouse schema.
