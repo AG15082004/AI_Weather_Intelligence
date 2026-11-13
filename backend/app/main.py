@@ -66,7 +66,16 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler for startup and shutdown events."""
     # 1. Validate timezone support (Asia/Kolkata) on startup
     validate_timezone_support()
-    log.info("application_startup", title="TN Weather Intelligence API")
+
+    # 2. Validate Microsoft Fabric configuration safely on startup
+    from app.services.fabric_connection import FabricConnectionService
+    fabric_diag = FabricConnectionService(settings).validate_configuration()
+    log.info(
+        "application_startup",
+        title="TN Weather Intelligence API",
+        fabric_status=fabric_diag.get("status"),
+        fabric_mode=fabric_diag.get("effective_auth_mode"),
+    )
     yield
     log.info("application_shutdown")
 

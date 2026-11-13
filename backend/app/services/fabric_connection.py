@@ -9,6 +9,7 @@ Supports:
 """
 
 import asyncio
+import os
 import struct
 import time
 from typing import Any, Dict, Optional, Tuple
@@ -24,6 +25,11 @@ log = structlog.get_logger()
 # ODBC SQL_COPT_SS_ACCESS_TOKEN attribute constant
 SQL_COPT_SS_ACCESS_TOKEN = 1256
 AZURE_SQL_RESOURCE = "https://database.windows.net/.default"
+
+
+class FabricConnectionError(Exception):
+    """Fabric SQL connection failure or service unavailable."""
+    pass
 
 
 def is_transient_connection_error(exc: Exception) -> bool:
@@ -62,15 +68,87 @@ class FabricConnectionService:
 
     @property
     def auth_mode(self) -> str:
-        """Normalized authentication mode."""
-        raw = (self._settings.fabric_auth_mode or "azure_cli").strip().lower()
-        if raw in ("azure_cli", "az_cli", "cli", "token"):
-            return "azure_cli"
-        if raw in ("service_principal", "spn", "app_registration"):
-            return "service_principal"
-        if raw in ("interactive", "activedirectoryinteractive"):
-            return "interactive"
-        return raw
+        """Effective authentication mode ('azure_cli', 'service_principal', or 'deferred')."""
+        mode, _ = self.resolve_auth_mode()
+        return mode
+
+    def is_driver_available(self) -> bool:
+        """Check if configured ODBC driver is registered on the host system."""
+        try:
+            drivers = pyodbc.drivers()
+            target = (self._settings.fabric_odbc_driver or "").strip().lower()
+            return any(d.strip().lower() == target for d in drivers)
+        except Exception as exc:
+            log.warning("odbc_driver_check_failed", error=str(exc))
+            return False
+
+    def resolve_auth_mode(self) -> Tuple[str, str]:
+        """Resolve effective authentication mode and diagnostic reason.
+
+        Returns:
+            (mode, reason)
+            mode: 'azure_cli', 'service_principal', or 'deferred'
+        """
+        server = (self._settings.fabric_server or "").strip()
+        if not server:
+            return "deferred", "fabric_server_unconfigured"
+
+        if not self.is_driver_available():
+            driver_name = self._settings.fabric_odbc_driver
+            return "deferred", f"odbc_driver_missing: '{driver_name}' not found on host"
+
+        is_cloud_prod = (
+            (self._settings.app_env or "development").strip().lower() in ("production", "staging")
+            or bool(os.environ.get("RENDER"))
+        )
+
+        has_spn = bool(
+            self._settings.fabric_client_id
+            and self._settings.fabric_client_secret
+            and len(self._settings.fabric_client_id.strip()) > 5
+            and len(self._settings.fabric_client_secret.strip()) > 5
+        )
+
+        if is_cloud_prod:
+            if has_spn:
+                return "service_principal", "production_service_principal_ready"
+            # Never attempt interactive browser/WAM or local Azure CLI on cloud host
+            return "deferred", "production_service_principal_credentials_deferred"
+
+        # Local development
+        raw_mode = (self._settings.fabric_auth_mode or "azure_cli").strip().lower()
+        if raw_mode in ("service_principal", "spn") and has_spn:
+            return "service_principal", "development_service_principal_ready"
+
+        return "azure_cli", "development_azure_cli_ready"
+
+    def validate_configuration(self) -> Dict[str, Any]:
+        """Validate Fabric configuration at startup without exposing secrets.
+
+        Returns safe diagnostic metadata.
+        """
+        mode, reason = self.resolve_auth_mode()
+        driver_ok = self.is_driver_available()
+        summary = self.get_safe_summary()
+        status = "ready" if mode in ("azure_cli", "service_principal") else "deferred"
+
+        log.info(
+            "fabric_startup_configuration_validated",
+            status=status,
+            effective_auth_mode=mode,
+            reason=reason,
+            driver=self._settings.fabric_odbc_driver,
+            driver_available=driver_ok,
+            database=self._settings.fabric_database,
+            server_configured=bool(self._settings.fabric_server),
+        )
+        return {
+            "status": status,
+            "effective_auth_mode": mode,
+            "reason": reason,
+            "driver_available": driver_ok,
+            "summary": summary,
+        }
 
     def get_token_struct(self) -> bytes:
         """Acquire SQL access token via Azure CLI and pack for ODBC attribute 1256.
@@ -185,12 +263,16 @@ class FabricConnectionService:
             self._cached_token_struct
             and time.time() < (self._cached_token_expires_on - 60)
         )
+        mode, reason = self.resolve_auth_mode()
 
         return {
             "server": masked_server,
             "database": self._settings.fabric_database,
-            "auth_mode": self.auth_mode,
+            "configured_auth_mode": (self._settings.fabric_auth_mode or "azure_cli"),
+            "effective_auth_mode": mode,
+            "auth_status_reason": reason,
             "driver": self._settings.fabric_odbc_driver,
+            "driver_available": self.is_driver_available(),
             "encrypt": self._settings.fabric_encrypt,
             "trust_server_certificate": self._settings.fabric_trust_server_certificate,
             "timeout_seconds": self._settings.fabric_connection_timeout,
@@ -206,6 +288,11 @@ class FabricConnectionService:
         Returns:
             Active pyodbc.Connection.
         """
+        mode, reason = self.resolve_auth_mode()
+        if mode == "deferred":
+            log.warning("fabric_connection_deferred", reason=reason)
+            raise FabricConnectionError(f"Microsoft Fabric connectivity is DEFERRED ({reason})")
+
         if self._connection is not None:
             try:
                 cur = self._connection.cursor()
@@ -220,7 +307,7 @@ class FabricConnectionService:
             "fabric_connecting",
             server=self._settings.fabric_server[:15] + "..." if self._settings.fabric_server else "",
             database=self._settings.fabric_database,
-            auth_mode=self.auth_mode,
+            auth_mode=mode,
         )
 
         max_retries = max(0, getattr(self._settings, "fabric_max_retries", 2))
@@ -286,14 +373,16 @@ class FabricConnectionService:
         """
         start_time = time.perf_counter()
         summary = self.get_safe_summary()
+        mode, reason = self.resolve_auth_mode()
 
-        if not self._settings.fabric_server:
+        if mode == "deferred":
             return {
-                "status": "error",
+                "status": "deferred",
                 "connected": False,
-                "error": "FABRIC_SERVER / FABRIC_SQL_ENDPOINT is not configured in .env",
+                "reason": reason,
+                "driver_available": self.is_driver_available(),
                 "details": summary,
-                "suggestion": "Set FABRIC_SERVER in backend/.env with your Fabric SQL endpoint",
+                "suggestion": "Configure FABRIC_SERVER and Service Principal credentials (or install msodbcsql18 via Docker) to enable cloud Fabric connectivity.",
             }
 
         try:
