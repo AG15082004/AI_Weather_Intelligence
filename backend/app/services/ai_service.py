@@ -64,6 +64,8 @@ class AIService:
         district_override: Optional[str] = None,
         start_date_override: Optional[date] = None,
         end_date_override: Optional[date] = None,
+        districts_override: Optional[List[str]] = None,
+        filters: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """End-to-end agent invocation for a natural-language user query."""
         clean_q = (query or "").strip()
@@ -94,6 +96,16 @@ class AIService:
             extracted.district = district_override
             if district_override not in extracted.districts:
                 extracted.districts.append(district_override)
+            if extracted.intent in ("general_weather_question", "statewide_summary") and "statewide" not in clean_q.lower() and "entire state" not in clean_q.lower():
+                extracted.intent = "current_weather"
+
+        if districts_override:
+            for d in districts_override:
+                if d not in extracted.districts:
+                    extracted.districts.append(d)
+            if len(extracted.districts) >= 2 and extracted.intent in ("general_weather_question", "statewide_summary"):
+                extracted.intent = "district_comparison"
+
         if start_date_override:
             extracted.date_range.start_date = start_date_override
             extracted.date_range.is_explicit = True

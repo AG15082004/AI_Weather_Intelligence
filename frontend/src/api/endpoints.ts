@@ -427,7 +427,8 @@ export async function chatWithAI(
   message: string,
   context?: string,
   conversationId?: string,
-  district?: string
+  district?: string,
+  filters?: Record<string, unknown>
 ): Promise<ChatResponse> {
   const res = await apiClient.post<RawRecord>(
     "/api/ai/chat",
@@ -437,6 +438,7 @@ export async function chatWithAI(
       context,
       conversation_id: conversationId,
       district,
+      filters,
     },
     { timeout: 60000 } // 60s timeout to allow Microsoft Fabric + local Ollama inference
   );

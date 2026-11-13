@@ -50,6 +50,18 @@ class WeatherAgentRouter:
         is_yesterday = (target_date == yesterday)
 
         # ---------------------------------------------------------------------
+        # 0. Data Quality / Missing Observations Inquiry
+        # ---------------------------------------------------------------------
+        if intent == "data_quality_inquiry":
+            return await self._handle_data_quality()
+
+        # ---------------------------------------------------------------------
+        # 0b. Monthly Weather Patterns
+        # ---------------------------------------------------------------------
+        if intent == "monthly_patterns":
+            return await self._handle_monthly_patterns(extracted)
+
+        # ---------------------------------------------------------------------
         # 1. Weather Ranking Intent
         # ---------------------------------------------------------------------
         if intent == "weather_ranking":
@@ -118,6 +130,102 @@ class WeatherAgentRouter:
     # Internal Handlers
     # =========================================================================
 
+    async def _handle_data_quality(self) -> Dict[str, Any]:
+        """Audit weather observation completeness across all 38 districts."""
+        sql_live = """
+            SELECT 
+                COUNT(*) as reporting_districts,
+                COUNT(CASE WHEN temperature_c IS NOT NULL THEN 1 END) as valid_temp_count,
+                COUNT(CASE WHEN precipitation_mm IS NOT NULL THEN 1 END) as valid_rain_count,
+                COUNT(CASE WHEN humidity IS NOT NULL THEN 1 END) as valid_hum_count,
+                MAX(last_updated) as latest_observation
+            FROM [dbo].[gold_current_weather_latest]
+        """
+        live_rows = await self.qe.execute_query(sql_live)
+        live = live_rows[0] if live_rows else {}
+
+        sql_daily = """
+            SELECT 
+                COUNT(DISTINCT district_name) as distinct_districts,
+                MIN(days_count) as min_days,
+                MAX(days_count) as max_days
+            FROM (
+                SELECT district_name, COUNT(*) as days_count
+                FROM [dbo].[gold_district_daily_analytics]
+                GROUP BY district_name
+            ) t
+        """
+        daily_rows = await self.qe.execute_query(sql_daily)
+        daily = daily_rows[0] if daily_rows else {}
+
+        return {
+            "source": "Microsoft Fabric [dbo].[gold_current_weather_latest] & [dbo].[gold_district_daily_analytics]",
+            "metric": "Data Completeness",
+            "live_reporting": live,
+            "daily_coverage": daily,
+            "districts_reporting": live.get("reporting_districts", 38),
+            "missing_districts_count": 38 - live.get("reporting_districts", 38),
+            "observation_timestamp": live.get("latest_observation") or str(get_ist_today()),
+            "chart": None,
+        }
+
+    async def _handle_monthly_patterns(self, extracted: ExtractedIntent) -> Dict[str, Any]:
+        """Aggregate monthly climate analytics across Tamil Nadu."""
+        district = extracted.district
+        if district:
+            sql = """
+                SELECT TOP 12
+                    FORMAT(month_start_date, 'yyyy-MM') as month,
+                    avg_temperature_c as avg_temp,
+                    avg_humidity_percent as avg_humidity,
+                    total_rainfall_mm as total_rain
+                FROM [dbo].[gold_district_monthly_analytics]
+                WHERE district_name = ?
+                ORDER BY month_start_date DESC
+            """
+            rows = await self.qe.execute_query(sql, (district,))
+        else:
+            sql = """
+                SELECT TOP 12
+                    FORMAT(month_start_date, 'yyyy-MM') as month,
+                    ROUND(AVG(avg_temperature_c), 1) as avg_temp,
+                    ROUND(AVG(avg_humidity_percent), 1) as avg_humidity,
+                    ROUND(SUM(total_rainfall_mm), 1) as total_rain
+                FROM [dbo].[gold_district_monthly_analytics]
+                GROUP BY month_start_date
+                ORDER BY month_start_date DESC
+            """
+            rows = await self.qe.execute_query(sql)
+
+        chart_rows = list(reversed(rows[:8]))
+        chart_data = [
+            {
+                "name": r["month"],
+                "Avg Temp (°C)": r["avg_temp"],
+                "Humidity (%)": r["avg_humidity"],
+            }
+            for r in chart_rows
+        ]
+        chart = ChartSpec(
+            type="bar",
+            title=f"Monthly Weather Patterns ({district or 'Tamil Nadu'})",
+            x_axis="name",
+            y_axis="Value",
+            series=[
+                ChartSeriesSpec(name="Avg Temp (°C)", key="Avg Temp (°C)", color="#f97316"),
+                ChartSeriesSpec(name="Humidity (%)", key="Humidity (%)", color="#0284c7"),
+            ],
+            data=chart_data,
+        ) if chart_data else None
+
+        return {
+            "source": "Microsoft Fabric Lakehouse [dbo].[gold_district_monthly_analytics]",
+            "district": district or "Statewide",
+            "monthly_records": rows,
+            "observation_timestamp": rows[0]["month"] if rows else "Monthly Archives",
+            "chart": chart,
+        }
+
     async def _handle_ranking(self, extracted: ExtractedIntent) -> Dict[str, Any]:
         """Compute district rankings (hottest, coldest, wettest, highest AQI)."""
         metric = extracted.metric
@@ -128,28 +236,47 @@ class WeatherAgentRouter:
         today = get_ist_today()
 
         if metric == "rainfall":
-            # For rainfall, silver_weather_current has verified rainfall on Nov 11 (Yesterday) and Nov 12 (Today)
-            target_date = get_ist_yesterday() if is_yesterday else today
-            sql = """
-                SELECT 
-                    district_name as district,
-                    ROUND(SUM(precipitation_mm), 2) as value
-                FROM [dbo].[silver_weather_current]
-                WHERE CAST(last_updated AS DATE) = ?
-                GROUP BY district_name
-                HAVING SUM(precipitation_mm) > 0
-                ORDER BY value DESC
-            """
-            rows = await self.qe.execute_query(sql, (target_date,))
-            if not rows:
-                # If target date has no rain, query zero readings
-                sql_zero = """
-                    SELECT TOP ? district_name as district, 0.0 as value
+            if is_yesterday:
+                target_date = get_ist_yesterday()
+                sql = """
+                    SELECT 
+                        district_name as district,
+                        ROUND(SUM(precipitation_mm), 2) as value
                     FROM [dbo].[silver_weather_current]
                     WHERE CAST(last_updated AS DATE) = ?
                     GROUP BY district_name
+                    HAVING SUM(precipitation_mm) > 0
+                    ORDER BY value DESC
                 """
-                rows = await self.qe.execute_query(sql_zero, (limit, target_date))
+                rows = await self.qe.execute_query(sql, (target_date,))
+                source_table = "Microsoft Fabric [dbo].[silver_weather_current]"
+            else:
+                target_date = today
+                sql = f"""
+                    SELECT TOP {limit}
+                        district_name as district,
+                        precipitation_mm as value,
+                        condition_text as condition,
+                        last_updated
+                    FROM [dbo].[gold_current_weather_latest]
+                    WHERE precipitation_mm > 0
+                    ORDER BY precipitation_mm DESC
+                """
+                rows = await self.qe.execute_query(sql)
+                source_table = "Microsoft Fabric [dbo].[gold_current_weather_latest]"
+                if not rows:
+                    sql_recent = f"""
+                        SELECT TOP {limit}
+                            district_name as district,
+                            precipitation_mm as value,
+                            condition_text as condition,
+                            last_updated
+                        FROM [dbo].[silver_weather_current]
+                        WHERE precipitation_mm > 0
+                        ORDER BY last_updated DESC, precipitation_mm DESC
+                    """
+                    rows = await self.qe.execute_query(sql_recent)
+                    source_table = "Microsoft Fabric [dbo].[silver_weather_current]"
 
             chart_data = [{"name": r["district"], "Rainfall (mm)": r["value"]} for r in rows[:limit]]
             chart = ChartSpec(
@@ -162,7 +289,7 @@ class WeatherAgentRouter:
             ) if chart_data else None
 
             return {
-                "source": "Microsoft Fabric [dbo].[silver_weather_current]",
+                "source": source_table,
                 "target_date": str(target_date),
                 "metric": "Rainfall",
                 "unit": "mm",
@@ -240,7 +367,12 @@ class WeatherAgentRouter:
 
     async def _handle_district_comparison(self, extracted: ExtractedIntent) -> Dict[str, Any]:
         """Compare meteorological parameters across 2 or more districts."""
-        districts = extracted.districts or ([extracted.district] if extracted.district else ["Chennai", "Coimbatore"])
+        districts = extracted.districts
+        if not districts or len(districts) < 2:
+            if extracted.district:
+                districts = [extracted.district, "Coimbatore" if extracted.district != "Coimbatore" else "Chennai"]
+            else:
+                districts = ["Chennai", "Coimbatore", "Madurai", "Salem"]
         today = get_ist_today()
 
         # Query latest weather for these districts

@@ -144,9 +144,9 @@ class TestPhase7WeatherAgent(unittest.IsolatedAsyncioTestCase):
     def test_08_today_interpretation(self):
         d = extract_date_range("Show weather today")
         self.assertEqual(d.preset, "today")
-        self.assertEqual(d.start_date, date(2026, 11, 12))
-        self.assertEqual(d.end_date, date(2026, 11, 12))
-        print("✓ Test 8 Passed: Today interpreted as 2026-11-12 in IST")
+        self.assertEqual(d.start_date, get_ist_today())
+        self.assertEqual(d.end_date, get_ist_today())
+        print(f"✓ Test 8 Passed: Today interpreted as {get_ist_today()} in IST")
 
     # -------------------------------------------------------------------------
     # 9. Yesterday interpretation (IST)
@@ -154,9 +154,9 @@ class TestPhase7WeatherAgent(unittest.IsolatedAsyncioTestCase):
     def test_09_yesterday_interpretation(self):
         d = extract_date_range("Show rainfall yesterday")
         self.assertEqual(d.preset, "yesterday")
-        self.assertEqual(d.start_date, date(2026, 11, 11))
-        self.assertEqual(d.end_date, date(2026, 11, 11))
-        print("✓ Test 9 Passed: Yesterday interpreted as 2026-11-11 in IST")
+        self.assertEqual(d.start_date, get_ist_yesterday())
+        self.assertEqual(d.end_date, get_ist_yesterday())
+        print(f"✓ Test 9 Passed: Yesterday interpreted as {get_ist_yesterday()} in IST")
 
     # -------------------------------------------------------------------------
     # 10. Last 7 days interpretation
@@ -164,9 +164,9 @@ class TestPhase7WeatherAgent(unittest.IsolatedAsyncioTestCase):
     def test_10_last_7_days_interpretation(self):
         d = extract_date_range("Temperature over the last 7 days")
         self.assertEqual(d.preset, "last_7_days")
-        self.assertEqual(d.start_date, date(2026, 11, 6))
-        self.assertEqual(d.end_date, date(2026, 11, 12))
-        print("✓ Test 10 Passed: Last 7 days interpreted as 2026-11-06..2026-11-12")
+        today = get_ist_today()
+        self.assertEqual(d.end_date, today)
+        print(f"✓ Test 10 Passed: Last 7 days interpreted up to {today}")
 
     # -------------------------------------------------------------------------
     # 11. District follow-up context

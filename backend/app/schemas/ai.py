@@ -21,6 +21,8 @@ IntentType = Literal[
     "district_intelligence",
     "weather_report",
     "dashboard_request",
+    "data_quality_inquiry",
+    "monthly_patterns",
     "general_weather_question",
     "unknown_intent",
 ]
@@ -99,15 +101,17 @@ class AIChatRequest(BaseModel):
     """Request model for conversational AI endpoint."""
     message: Optional[str] = Field(None, description="Natural-language weather question")
     query: Optional[str] = Field(None, description="Alias for message")
+    question: Optional[str] = Field(None, description="Alias for message")
     conversation_id: Optional[str] = Field(None, description="Session conversation identifier")
     context: Optional[str] = Field(None, description="Legacy context parameter")
     district: Optional[str] = Field(None, description="Optional explicit district override")
     start_date: Optional[date] = Field(None, description="Optional explicit start date override")
     end_date: Optional[date] = Field(None, description="Optional explicit end date override")
+    filters: Optional[Dict[str, Any]] = Field(None, description="Active dashboard filter context")
 
     @property
     def prompt_text(self) -> str:
-        return (self.message or self.query or "").strip()
+        return (self.question or self.message or self.query or "").strip()
 
 
 class AIChatResponse(BaseModel):

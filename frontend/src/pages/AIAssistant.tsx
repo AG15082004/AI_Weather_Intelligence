@@ -8,6 +8,7 @@ import {
   ArrowRight,
   RefreshCw,
   AlertCircle,
+  Filter,
 } from "lucide-react";
 import { chatWithAI, clearChatSession } from "@/api/endpoints";
 import { API_BASE_URL } from "@/api/client";
@@ -15,19 +16,22 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AIWeatherReportCard } from "@/components/ai/AIWeatherReportCard";
+import { DistrictFilter } from "@/components/common/DistrictFilter";
+import { DateRangeFilter } from "@/components/filters/DateRangeFilter";
 import { cn } from "@/lib/utils";
 import type { ChatMessage } from "@/types";
 
 const SUGGESTED_PROMPTS = [
-  "What is today's weather across Tamil Nadu?",
-  "Which district is hottest today?",
+  "Which district recorded the highest temperature today?",
+  "What is today's average temperature across Tamil Nadu?",
+  "Which district received the highest rainfall?",
   "Compare Chennai and Coimbatore weather.",
-  "Show yesterday's rainfall across districts.",
-  "Show all-time temperature and rainfall trends across Tamil Nadu.",
-  "Which districts have unhealthy AQI?",
-  "Compare this month and last month temperature.",
-  "Generate a Tamil Nadu weather bulletin report.",
-  "Which district has the coolest temperature?",
+  "Which districts have the highest AQI?",
+  "Show rainfall trends for the selected date range.",
+  "Compare district temperatures.",
+  "Show monthly weather patterns.",
+  "Identify districts with missing weather observations.",
+  "Summarize the weather conditions for the selected districts.",
 ];
 
 const INITIAL_MESSAGE: ChatMessage = {
@@ -41,12 +45,12 @@ const INITIAL_MESSAGE: ChatMessage = {
     hour: "2-digit",
     minute: "2-digit",
   }),
-  sources: ["Live Weather Observations"],
+  sources: [],
   follow_up_suggestions: [
-    "What is today's weather across Tamil Nadu?",
-    "Which district is the hottest right now?",
-    "Show yesterday's rainfall distribution",
-    "Which districts have unhealthy AQI?",
+    "What is today's average temperature across Tamil Nadu?",
+    "Which district recorded the highest temperature today?",
+    "Which district received the highest rainfall?",
+    "Which districts have the highest AQI?",
   ],
 };
 
@@ -60,6 +64,12 @@ export function AIAssistant() {
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
+
+  // Synchronized Dashboard Filters for Grounded Intelligence
+  const [selectedDistrict, setSelectedDistrict] = useState<string>("all");
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
+  const [preset, setPreset] = useState<string>("all");
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -131,7 +141,18 @@ export function AIAssistant() {
         .map((m) => `${m.role}: ${m.content}`)
         .join("\n");
 
-      const res = await chatWithAI(trimmed, recentContext, conversationId);
+      const res = await chatWithAI(
+        trimmed,
+        recentContext,
+        conversationId,
+        selectedDistrict === "all" ? undefined : selectedDistrict,
+        {
+          district: selectedDistrict === "all" ? undefined : selectedDistrict,
+          preset: preset,
+          start_date: startDate || undefined,
+          end_date: endDate || undefined,
+        }
+      );
 
       const assistantMessage: ChatMessage = {
         id: `assistant-${Date.now()}`,
@@ -228,6 +249,48 @@ export function AIAssistant() {
             New Conversation
           </Button>
         </CardHeader>
+
+        {/* Synchronized Filter Context Bar */}
+        <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/70 px-5 py-2 text-xs">
+          <div className="flex items-center gap-2 text-slate-600 font-medium">
+            <Filter className="size-3.5 text-blue-600" />
+            <span className="font-semibold text-slate-700">Filter Grounding Context:</span>
+            {selectedDistrict !== "all" && (
+              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
+                {selectedDistrict}
+              </span>
+            )}
+            {preset !== "all" && (
+              <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                Preset: {preset}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <DistrictFilter
+              value={selectedDistrict}
+              onChange={setSelectedDistrict}
+              includeAll
+              allLabel="All 38 Districts"
+              className="text-xs"
+            />
+            <DateRangeFilter
+              startDate={startDate}
+              endDate={endDate}
+              onApply={(start, end, p) => {
+                setStartDate(start);
+                setEndDate(end);
+                if (p) setPreset(p);
+              }}
+              onReset={() => {
+                setStartDate("");
+                setEndDate("");
+                setPreset("all");
+                setSelectedDistrict("all");
+              }}
+            />
+          </div>
+        </div>
 
         {/* Error Notification Banner if any */}
         {errorBanner && (

@@ -68,13 +68,38 @@ async def ai_query_endpoint(request: AIChatRequest, raw_request: Request):
         remaining_quota=remaining,
     )
 
+    # 3. Resolve filters & overrides
+    filters = request.filters or {}
+    district_override = request.district
+    if not district_override and filters.get("district") and str(filters.get("district")).lower() not in ("all", "all districts"):
+        district_override = str(filters.get("district"))
+
+    districts_override = None
+    if isinstance(filters.get("districts"), list) and filters.get("districts"):
+        districts_override = [str(d) for d in filters.get("districts") if str(d).lower() not in ("all", "all districts")]
+
+    start_date_override = request.start_date
+    end_date_override = request.end_date
+    if not start_date_override and filters.get("start_date"):
+        try:
+            start_date_override = date.fromisoformat(str(filters["start_date"]))
+        except Exception:
+            pass
+    if not end_date_override and filters.get("end_date"):
+        try:
+            end_date_override = date.fromisoformat(str(filters["end_date"]))
+        except Exception:
+            pass
+
     res = await ai_service.generate_response(
         query=clean_prompt,
         context=request.context,
         conversation_id=request.conversation_id,
-        district_override=request.district,
-        start_date_override=request.start_date,
-        end_date_override=request.end_date,
+        district_override=district_override,
+        start_date_override=start_date_override,
+        end_date_override=end_date_override,
+        districts_override=districts_override,
+        filters=filters,
     )
     return res
 
