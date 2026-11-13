@@ -216,3 +216,4 @@ export function MarkdownContent({ content, className = "" }: MarkdownContentProp
 
   return <div className={`space-y-1 ${className}`}>{blocks}</div>;
 }
+
