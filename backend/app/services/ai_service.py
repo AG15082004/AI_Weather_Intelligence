@@ -14,6 +14,7 @@ import structlog
 from app.config import get_settings
 from app.schemas.ai import AIChatRequest, AIChatResponse, ChartSpec, ExtractedIntent
 from app.services.grounded_response_generator import GroundedResponseGenerator
+from app.services.openai_provider import openai_provider
 from app.services.metrics_service import metrics_service
 from app.services.session_memory import session_manager
 from app.services.weather_agent_router import WeatherAgentRouter
@@ -31,6 +32,7 @@ class AIService:
         self.settings = get_settings()
         self.router = WeatherAgentRouter()
         self.generator = GroundedResponseGenerator()
+        self.openai_provider = openai_provider
 
     async def detect_intent(self, query: str) -> str:
         """Fast intent detection based on the 15 supported intents."""

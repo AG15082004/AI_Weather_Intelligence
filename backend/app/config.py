@@ -105,7 +105,27 @@ class Settings(BaseSettings):
     ai_provider: str = Field(
         default="auto",
         validation_alias=AliasChoices("AI_PROVIDER"),
-        description="AI provider strategy: auto, ollama, or deterministic",
+        description="AI provider strategy: auto, openai, ollama, or deterministic",
+    )
+    openai_api_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("OPENAI_API_KEY"),
+        description="OpenAI API Key for GPT-6 Luna online responses",
+    )
+    openai_model: str = Field(
+        default="gpt-6-luna",
+        validation_alias=AliasChoices("OPENAI_MODEL"),
+        description="OpenAI model name to use for online AI features",
+    )
+    openai_timeout_seconds: float = Field(
+        default=30.0,
+        validation_alias=AliasChoices("OPENAI_TIMEOUT_SECONDS", "OPENAI_TIMEOUT"),
+        description="Timeout for OpenAI Responses API requests in seconds",
+    )
+    openai_max_output_tokens: int = Field(
+        default=1024,
+        validation_alias=AliasChoices("OPENAI_MAX_OUTPUT_TOKENS"),
+        description="Maximum output tokens for OpenAI generation",
     )
     ollama_base_url: str = Field(
         default="http://127.0.0.1:11434",

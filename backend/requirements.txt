@@ -9,3 +9,4 @@ httpx
 structlog
 python-multipart
 tzdata
+openai

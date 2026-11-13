@@ -88,14 +88,41 @@ async def clear_session_endpoint(conversation_id: str):
 
 @router.get("/health")
 async def ai_health_endpoint():
-    """Health check for AI engine, Ollama service, and Fabric connectivity."""
+    """Health check for AI engine, OpenAI GPT-6 Luna, Ollama service, and Fabric connectivity."""
     active_provider, provider_reason = await ai_service.generator.resolve_ai_provider()
+    configured_provider = (ai_service.settings.ai_provider or "auto").strip().lower()
+    openai_health = ai_service.openai_provider.get_health_status()
     ollama_health = await ai_service.generator.check_ollama_health()
+
+    fallback_active = active_provider == "deterministic" and configured_provider in ("openai", "ollama")
+
+    if active_provider == "openai":
+        model_name = ai_service.openai_provider.model
+        provider_status = openai_health.get("status", "ready")
+    elif active_provider == "ollama":
+        model_name = ai_service.settings.ollama_model
+        provider_status = ollama_health.get("status", "online")
+    else:
+        model_name = "deterministic-rules"
+        provider_status = "fallback_active" if fallback_active else "deterministic"
+
+    is_healthy = not fallback_active
+
     return {
-        "status": "healthy",
+        "status": "healthy" if is_healthy else "degraded",
         "service": "AI Weather Intelligence Agent",
+        "configured_provider": configured_provider,
         "active_provider": active_provider,
+        "model_name": model_name,
+        "provider_status": provider_status,
+        "fallback_active": fallback_active,
+        "fallback_reason": provider_reason if fallback_active else None,
+        "last_successful_request": openai_health.get("last_successful_request"),
+        "request_count": openai_health.get("total_requests", 0),
+        "error_count": openai_health.get("failed_requests", 0),
+        "token_usage": openai_health.get("token_usage", {}),
         "provider_reason": provider_reason,
+        "openai": openai_health,
         "ollama": ollama_health,
         "active_sessions": session_manager.active_sessions_count(),
     }

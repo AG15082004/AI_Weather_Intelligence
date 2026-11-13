@@ -14,6 +14,7 @@ import structlog
 
 from app.config import get_settings
 from app.schemas.ai import ExtractedIntent
+from app.services.openai_provider import openai_provider
 
 log = structlog.get_logger()
 
@@ -130,16 +131,21 @@ class GroundedResponseGenerator:
         return result
 
     async def resolve_ai_provider(self) -> Tuple[str, str]:
-        """Determine whether to use Ollama LLM or deterministic fallback engine.
+        """Determine whether to use OpenAI GPT-6 Luna, Ollama LLM, or deterministic fallback engine.
 
         Returns:
             (provider_type, reason_string)
-            where provider_type is 'ollama' or 'deterministic'
+            where provider_type is 'openai', 'ollama', or 'deterministic'
         """
         configured = (self.settings.ai_provider or "auto").strip().lower()
 
         if configured == "deterministic":
             return "deterministic", "ai_provider_explicitly_configured_deterministic"
+
+        if configured == "openai":
+            if openai_provider.is_configured():
+                return "openai", "configured_openai_gpt6_luna_primary"
+            return "deterministic", "openai_key_unconfigured_fallback"
 
         if configured == "ollama":
             health = await self.check_ollama_health()
@@ -147,15 +153,20 @@ class GroundedResponseGenerator:
                 return "ollama", "configured_ollama_online"
             return "deterministic", f"configured_ollama_unavailable: {health.get('status', 'offline')}"
 
-        # configured == "auto"
+        # Strategy: configured == "auto"
         is_production = self.settings.app_env.lower() in ("production", "staging")
-        if is_production and _is_local_url(self.base_url):
+        if is_production:
+            if openai_provider.is_configured():
+                return "openai", "production_openai_gpt6_luna_primary"
             return "deterministic", "cloud_production_localhost_skipped"
 
-        # Check Ollama connectivity in development or remote host
+        # Local development: prefer Ollama Qwen3:4b when available
         health = await self.check_ollama_health()
         if health.get("available") and health.get("model_available"):
             return "ollama", "ollama_service_online_and_ready"
+
+        if openai_provider.is_configured():
+            return "openai", "development_openai_fallback_over_ollama"
 
         return "deterministic", f"ollama_unavailable: {health.get('status', 'offline')}"
 
@@ -192,7 +203,7 @@ class GroundedResponseGenerator:
         # 2. Build verified factual summary text
         facts_summary = self._format_factual_summary(extracted, query_result)
 
-        # 3. Resolve active AI provider (Ollama vs. Deterministic)
+        # 3. Resolve active AI provider (OpenAI vs. Ollama vs. Deterministic)
         active_provider, provider_reason = await self.resolve_ai_provider()
         log.info(
             "ai_provider_resolved",
@@ -200,6 +211,53 @@ class GroundedResponseGenerator:
             reason=provider_reason,
             intent=extracted.intent,
         )
+
+        data_status = query_result.get("data_status") or ("CACHED" if query_result.get("is_cached") else "LIVE")
+        status_tag = f" [{data_status}]" if data_status in ("LIVE", "CACHED") else ""
+        stale_note = " *(Cached observation – may be stale)*" if query_result.get("is_stale") else ""
+
+        if active_provider == "openai":
+            system_prompt = (
+                "You are the official Tamil Nadu Weather Intelligence AI Agent powered by OpenAI GPT-6 Luna. "
+                "Your answers must be 100% FACTUAL and STRICTLY BASED on the verified Microsoft Fabric data provided below. "
+                "CRITICAL INSTRUCTIONS:\n"
+                "1. NEVER invent, estimate, or hallucinate weather values or measurements.\n"
+                "2. Quote the verified numbers directly with appropriate units (°C, mm, %, AQI).\n"
+                "3. If rainfall or another metric is unmeasured or missing, clearly state that it is unmeasured.\n"
+                "4. If Fabric data is offline or unavailable, clearly state that real-time observation data is currently unavailable from Microsoft Fabric without fabricating synthetic numbers.\n"
+                "5. Answer general meteorological questions accurately and informatively.\n"
+                "6. Maintain a professional, clear, and concise tone."
+            )
+
+            user_prompt = (
+                f"User Question: {query}\n\n"
+                f"VERIFIED DATA METADATA:\n"
+                f"- Data Source: {source}\n"
+                f"- Observation Timestamp: {timestamp} (Asia/Kolkata IST)\n"
+                f"- Data Status: {data_status}\n\n"
+                f"VERIFIED FABRIC LAKEHOUSE FACTS:\n{facts_summary}\n\n"
+                f"Please formulate a natural, complete, and precise response answering the user's question directly based on this data."
+            )
+
+            try:
+                llm_text, usage = await openai_provider.generate_response(
+                    prompt=user_prompt,
+                    instructions=system_prompt,
+                    session_history=session_history,
+                )
+                if llm_text and len(llm_text.strip()) > 15:
+                    final_answer = llm_text.strip()
+                    if "Data source:" not in final_answer:
+                        final_answer += f"\n\n*Data source: {source}{status_tag}{stale_note} | Model: OpenAI GPT-6 Luna | Observation time: {timestamp} (Asia/Kolkata IST)*"
+                    return final_answer, suggestions
+            except Exception as exc:
+                log.warning(
+                    "openai_llm_fallback_engaged",
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                    model=openai_provider.model,
+                )
+                # Fall through to deterministic fallback
 
         if active_provider == "ollama":
             system_prompt = (
@@ -352,6 +410,8 @@ class GroundedResponseGenerator:
 
         elif "data" in res and res["data"]:
             rows = res["data"]
+            if isinstance(rows, dict):
+                rows = [rows]
             if extracted.district and rows:
                 item = rows[0]
                 lines.append(f"Weather conditions for {item.get('district')}:")
