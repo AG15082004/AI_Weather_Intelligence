@@ -66,8 +66,12 @@ export function WeatherOverview() {
     );
   }
 
+  const isDataUnavailable =
+    response?.data_status === "UNAVAILABLE" ||
+    response?.status === "unavailable";
+
   const formatVal = (val: number | null | undefined, unit: string) => {
-    if (response?.data_status === "UNAVAILABLE") return "Data Offline";
+    if (isDataUnavailable) return "Fabric Disconnected";
     return val != null ? `${val.toFixed(1)}${unit}` : "N/A";
   };
 
@@ -174,8 +178,8 @@ export function WeatherOverview() {
         <KPICard
           title="Total Rainfall"
           value={
-            response?.data_status === "UNAVAILABLE"
-              ? "Data Offline"
+            isDataUnavailable
+              ? "Fabric Disconnected"
               : activeOverview?.total_rainfall !== null &&
                 activeOverview?.total_rainfall !== undefined
                 ? `${activeOverview.total_rainfall.toFixed(1)} mm`
@@ -247,8 +251,16 @@ export function WeatherOverview() {
 
       {!hasChartData ? (
         <EmptyState
-          title="Overview Trend Charts Pending Fabric Sync"
-          message="The API responded cleanly, but no time-series rows are available yet until Microsoft Fabric Lakehouse is connected."
+          title={
+            isDataUnavailable
+              ? "Fabric Lakehouse Not Connected"
+              : "Overview Trend Charts Pending Fabric Sync"
+          }
+          message={
+            isDataUnavailable
+              ? "Microsoft Fabric Lakehouse is currently disconnected. Configure Fabric credentials in Render to stream live 38-district telemetry."
+              : "The API responded cleanly, but no time-series rows are available for this date filter."
+          }
           actionLabel="Preview Sample TN Charts"
           onAction={() => setPreviewSample(true)}
         />

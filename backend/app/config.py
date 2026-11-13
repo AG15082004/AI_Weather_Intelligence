@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     )
     fabric_tenant_id: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("FABRIC_TENANT_ID"),
+        validation_alias=AliasChoices("FABRIC_TENANT_ID", "AZURE_TENANT_ID"),
         description="Entra ID Tenant ID for Fabric connection",
     )
     fabric_username: Optional[str] = Field(
@@ -55,12 +55,12 @@ class Settings(BaseSettings):
     )
     fabric_client_id: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("FABRIC_CLIENT_ID"),
+        validation_alias=AliasChoices("FABRIC_CLIENT_ID", "AZURE_CLIENT_ID"),
         description="Service Principal Client ID (future production auth)",
     )
     fabric_client_secret: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("FABRIC_CLIENT_SECRET"),
+        validation_alias=AliasChoices("FABRIC_CLIENT_SECRET", "AZURE_CLIENT_SECRET"),
         description="Service Principal Client Secret (future production auth)",
     )
     fabric_odbc_driver: str = Field(
