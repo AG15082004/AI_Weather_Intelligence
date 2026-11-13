@@ -157,7 +157,7 @@ export function Sidebar({
               </span>
             </div>
             <p className="mt-0.5 text-[11px] text-slate-500">
-              Fabric + Qwen3 Analytics
+              Fabric + AI Intelligence
             </p>
           </div>
         )}
