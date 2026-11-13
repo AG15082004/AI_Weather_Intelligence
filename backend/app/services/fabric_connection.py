@@ -185,6 +185,50 @@ class FabricConnectionService:
         )
         return token_struct
 
+    def get_service_principal_token_struct(self) -> bytes:
+        """Acquire SQL access token via Entra Service Principal and pack for ODBC attribute 1256.
+
+        Refreshes token automatically if expired or within 300 seconds of expiry.
+        Token strings are never logged or exposed.
+        """
+        now = time.time()
+        if self._cached_token_struct and now < (self._cached_token_expires_on - 300):
+            return self._cached_token_struct
+
+        log.info(
+            "acquiring_service_principal_token",
+            resource=AZURE_SQL_RESOURCE,
+            has_tenant=bool(self._settings.fabric_tenant_id),
+            has_client=bool(self._settings.fabric_client_id),
+        )
+
+        from azure.identity import ClientSecretCredential
+
+        credential = ClientSecretCredential(
+            tenant_id=self._settings.fabric_tenant_id,
+            client_id=self._settings.fabric_client_id,
+            client_secret=self._settings.fabric_client_secret,
+        )
+        token_obj = credential.get_token(AZURE_SQL_RESOURCE)
+        access_token = token_obj.token
+        expires_on = float(token_obj.expires_on)
+
+        token_bytes = access_token.encode("utf-16-le")
+        token_struct = struct.pack(
+            f"<I{len(token_bytes)}s",
+            len(token_bytes),
+            token_bytes,
+        )
+
+        self._cached_token_struct = token_struct
+        self._cached_token_expires_on = expires_on
+
+        log.info(
+            "service_principal_token_acquired",
+            expires_in_seconds=int(expires_on - now),
+        )
+        return token_struct
+
     def build_connection_params(self) -> Tuple[str, Optional[Dict[int, bytes]]]:
         """Build ODBC connection string and optional attrs_before dictionary.
 
