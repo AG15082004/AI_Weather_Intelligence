@@ -34,9 +34,9 @@ class Settings(BaseSettings):
         description="Fabric database / Lakehouse name",
     )
     fabric_auth_mode: str = Field(
-        default="interactive",
+        default="azure_cli",
         validation_alias=AliasChoices("FABRIC_AUTH_MODE", "FABRIC_AUTHENTICATION"),
-        description="Fabric authentication method (interactive, service_principal, password, msi)",
+        description="Fabric authentication method (azure_cli, service_principal, interactive)",
     )
     fabric_tenant_id: Optional[str] = Field(
         default=None,
