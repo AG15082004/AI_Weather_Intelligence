@@ -1,5 +1,5 @@
 import { Suspense, lazy } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { LoadingSkeleton } from "@/components/common/LoadingSkeleton";
@@ -60,8 +60,10 @@ export function App() {
               <Route path="/current-weather" element={<CurrentWeather />} />
               <Route path="/air-quality" element={<AirQuality />} />
               <Route path="/historical" element={<HistoricalAnalytics />} />
+              <Route path="/analytics" element={<Navigate to="/historical" replace />} />
               <Route path="/ai-assistant" element={<AIAssistant />} />
               <Route path="/dashboard-builder" element={<DashboardBuilder />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
         </AppLayout>
