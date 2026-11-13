@@ -81,3 +81,4 @@ Executed automated tests in `backend/test_production_cors_and_overview.py`:
 * **Test 2 - CORS Rejected Unauthorized Origin:** Verified that unauthorized origins do NOT receive the header (**PASS**).
 * **Test 3 - OPTIONS Preflight:** Verified `OPTIONS /api/overview` returns `200 OK` with allowed origin and allowed methods (**PASS**).
 * **Test 4 - CORS Headers on HTTP 500:** Simulated unhandled server crash; verified HTTP 500 JSON response includes `Access-Control-Allow-Origin` (**PASS**).
+

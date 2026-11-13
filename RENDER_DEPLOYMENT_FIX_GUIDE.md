@@ -82,3 +82,4 @@ Expected Outcome:
 * Preflight returns HTTP 200 with `Access-Control-Allow-Origin: https://ai-weather-intelligence-1.onrender.com`.
 * Overview returns HTTP 200 with JSON payload (`status: "unavailable"` when Fabric is offline without crashing).
 * The dashboard displays graceful status badges without browser console errors.
+

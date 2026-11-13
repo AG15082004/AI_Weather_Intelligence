@@ -95,3 +95,4 @@ except Exception as exc:
 We simulated complete Fabric Lakehouse failure locally using `QueryExecutor.execute_query` mocking:
 * **Result:** `GET /api/overview` returned HTTP 200 with `status: "unavailable"`, `data_status: "UNAVAILABLE"`, valid JSON schema, and complete CORS headers.
 * **All 10 Weather Endpoints Verified:** Tested all primary API routes (`/api/overview`, `/api/temperature`, `/api/rainfall`, `/api/districts`, `/api/weather/current`, `/api/current-weather`, `/api/air-quality`, `/api/health`, `/api/ai/health`, `/api/monitoring/operational-status`). All 10 returned HTTP 200 with complete CORS headers.
+
