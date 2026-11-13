@@ -158,11 +158,13 @@ class QueryExecutor:
             row = cursor.fetchone()
             duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
             result = row[0] if row else None
+            metrics_service.record_fabric_query(success=True, duration_ms=duration_ms)
             log.info("scalar_query_executed", has_result=result is not None, duration_ms=duration_ms)
             return result
 
         except (pyodbc.Error, Exception) as exc:
             duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
+            metrics_service.record_fabric_query(success=False, duration_ms=duration_ms)
             classified = classify_db_error(exc)
             log.error(
                 "scalar_query_failed",

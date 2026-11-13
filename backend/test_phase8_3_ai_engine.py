@@ -53,8 +53,10 @@ class TestPhase83AIEngine(unittest.IsolatedAsyncioTestCase):
             app_env="production",
             ai_provider="auto",
             ollama_base_url="http://127.0.0.1:11434",
+            openai_api_key="",
         )
-        with patch.object(self.generator, "settings", prod_settings):
+        with patch.object(self.generator, "settings", prod_settings), \
+             patch("app.services.grounded_response_generator.openai_provider.is_configured", return_value=False):
             provider, reason = await self.generator.resolve_ai_provider()
             self.assertEqual(provider, "deterministic")
             self.assertEqual(reason, "cloud_production_localhost_skipped")

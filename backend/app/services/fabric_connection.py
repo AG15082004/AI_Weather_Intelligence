@@ -376,6 +376,13 @@ class FabricConnectionService:
         mode, reason = self.resolve_auth_mode()
 
         if mode == "deferred":
+            try:
+                from app.services.data_reliability_service import data_reliability_service
+                from app.services.metrics_service import metrics_service
+                metrics_service.record_fabric_check(False)
+                data_reliability_service.record_connectivity_check(False)
+            except Exception:
+                pass
             return {
                 "status": "deferred",
                 "connected": False,
@@ -396,6 +403,14 @@ class FabricConnectionService:
             result_val = row[0] if row else None
 
             if result_val == 1:
+                try:
+                    from app.services.data_reliability_service import data_reliability_service
+                    from app.services.metrics_service import metrics_service
+                    metrics_service.record_fabric_query(success=True, duration_ms=latency_ms)
+                    metrics_service.record_fabric_check(True)
+                    data_reliability_service.record_connectivity_check(True)
+                except Exception:
+                    pass
                 return {
                     "status": "connected",
                     "connected": True,
@@ -405,6 +420,14 @@ class FabricConnectionService:
                     "details": summary,
                 }
             else:
+                try:
+                    from app.services.data_reliability_service import data_reliability_service
+                    from app.services.metrics_service import metrics_service
+                    metrics_service.record_fabric_query(success=False, duration_ms=latency_ms)
+                    metrics_service.record_fabric_check(False)
+                    data_reliability_service.record_connectivity_check(False)
+                except Exception:
+                    pass
                 return {
                     "status": "error",
                     "connected": False,
@@ -417,6 +440,14 @@ class FabricConnectionService:
             latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
             raw_msg = str(odbc_err)
             diag_hint = self._diagnose_odbc_error(raw_msg)
+            try:
+                from app.services.data_reliability_service import data_reliability_service
+                from app.services.metrics_service import metrics_service
+                metrics_service.record_fabric_query(success=False, duration_ms=latency_ms)
+                metrics_service.record_fabric_check(False)
+                data_reliability_service.record_connectivity_check(False)
+            except Exception:
+                pass
 
             return {
                 "status": "error",
@@ -429,6 +460,14 @@ class FabricConnectionService:
             }
         except Exception as exc:
             latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
+            try:
+                from app.services.data_reliability_service import data_reliability_service
+                from app.services.metrics_service import metrics_service
+                metrics_service.record_fabric_query(success=False, duration_ms=latency_ms)
+                metrics_service.record_fabric_check(False)
+                data_reliability_service.record_connectivity_check(False)
+            except Exception:
+                pass
             return {
                 "status": "error",
                 "connected": False,

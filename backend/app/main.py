@@ -194,10 +194,12 @@ async def health_check():
     fabric_status = summary["fabric_metrics"]["status"]
     
     # Global status evaluation:
-    # If fabric is unavailable, overall status is unavailable.
-    # If fabric is degraded, overall status is degraded.
-    # If AI deterministic is active and fabric is healthy, overall status is HEALTHY!
-    if fabric_status == "unavailable":
+    # 1. Distinguish API health from Fabric dependency health.
+    # 2. Do not mark the overall API unhealthy merely because Fabric is deferred.
+    # 3. Overall API is healthy when API core is functioning, even if Fabric is deferred.
+    if fabric_status == "deferred":
+        overall_status = "healthy"
+    elif fabric_status == "unavailable":
         overall_status = "unavailable"
     elif fabric_status == "degraded":
         overall_status = "degraded"
