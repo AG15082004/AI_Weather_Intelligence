@@ -149,6 +149,8 @@ class TestPhase84SecurityAndMonitoring(unittest.TestCase):
     # -------------------------------------------------------------------------
     def test_07_fabric_unavailable_evaluation(self):
         """Consecutive Fabric failures transition health status to unavailable."""
+        # Establish verified successful query first
+        metrics_service.record_fabric_query(success=True, duration_ms=15.0)
         # Simulate consecutive failures
         metrics_service.fabric_consecutive_failures = 5
         summary = metrics_service.get_summary()

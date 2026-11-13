@@ -95,6 +95,24 @@ class DataReliabilityService:
         self._fabric_is_connected = False
         self._last_connectivity_check = time.time()
 
+    @property
+    def fabric_connected(self) -> bool:
+        """Return current Fabric connectivity status."""
+        with self._lock:
+            return self._fabric_is_connected
+
+    @property
+    def is_fabric_connected(self) -> bool:
+        """Alias for fabric_connected property."""
+        with self._lock:
+            return self._fabric_is_connected
+
+    def record_connectivity_check(self, connected: bool) -> None:
+        """Record the result of an explicit Fabric SQL connectivity check."""
+        with self._lock:
+            self._fabric_is_connected = connected
+            self._last_connectivity_check = time.time()
+
     def _normalize_name(self, dataset: str) -> str:
         """Resolve dataset name to canonical Gold table name."""
         clean = dataset.strip().lower()

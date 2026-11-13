@@ -30,7 +30,7 @@ class MetricsService:
 
     def _init_metrics(self) -> None:
         self.start_time = time.time()
-        self._lock_state = threading.Lock()
+        self._lock_state = threading.RLock()
 
         # HTTP Requests
         self.total_requests = 0
@@ -45,6 +45,8 @@ class MetricsService:
         self.fabric_failed_queries = 0
         self.fabric_last_query_ts: Optional[str] = None
         self.fabric_consecutive_failures = 0
+        self.fabric_verified_connected = False
+        self._fabric_status_override: Optional[str] = None
         self._recent_fabric_durations: deque = deque(maxlen=100)
 
         # AI Engine Telemetry
@@ -58,6 +60,11 @@ class MetricsService:
         self.latest_observation_timestamp: Optional[str] = "2026-11-12 15:30"
         self.districts_reporting_count: int = 38
         self.total_districts_count: int = 38
+
+    def reset(self) -> None:
+        """Reset in-memory metrics for testing."""
+        with self._lock_state:
+            self._init_metrics()
 
     def record_request(
         self, path: str, method: str, status_code: int, duration_ms: float
@@ -81,10 +88,60 @@ class MetricsService:
             if success:
                 self.fabric_successful_queries += 1
                 self.fabric_consecutive_failures = 0
+                self.fabric_verified_connected = True
                 self._recent_fabric_durations.append(duration_ms)
             else:
                 self.fabric_failed_queries += 1
                 self.fabric_consecutive_failures += 1
+                self.fabric_verified_connected = False
+
+    def record_fabric_check(self, connected: bool) -> None:
+        """Record result of an explicit SQL connectivity check (e.g. SELECT 1)."""
+        with self._lock_state:
+            self.fabric_verified_connected = connected
+            if connected:
+                self.fabric_consecutive_failures = 0
+            else:
+                self.fabric_consecutive_failures += 1
+
+    def set_fabric_status_override(self, status: Optional[str]) -> None:
+        """Override Fabric status (used for testing or explicit administration)."""
+        with self._lock_state:
+            self._fabric_status_override = status
+
+    def get_fabric_status(self) -> str:
+        """Determine consistent Fabric dependency status according to operational rules:
+        1. If Fabric authentication is deferred, report 'deferred'.
+        2. If Fabric is configured but connection fails, report 'unavailable'.
+        3. Only report Fabric as 'healthy' after a successful SQL connectivity check.
+        """
+        with self._lock_state:
+            if self._fabric_status_override is not None:
+                return self._fabric_status_override
+
+            # 1. Check if Fabric authentication is deferred
+            try:
+                from app.config import get_settings
+                from app.services.fabric_connection import FabricConnectionService
+                conn_svc = FabricConnectionService(get_settings())
+                mode, _ = conn_svc.resolve_auth_mode()
+                if mode == "deferred":
+                    return "deferred"
+            except Exception as exc:
+                log.warning("failed_to_resolve_fabric_auth_mode", error=str(exc))
+                return "deferred"
+
+            # 2. Fabric is configured (azure_cli or service_principal).
+            # If connection fails or consecutive failures > 0 -> unavailable
+            if self.fabric_consecutive_failures > 0:
+                return "unavailable"
+
+            # 3. Only report Fabric as 'healthy' after a successful SQL connectivity check
+            if (self.fabric_successful_queries > 0 or self.fabric_verified_connected) and self.fabric_consecutive_failures == 0:
+                return "healthy"
+
+            # 4. Configured, but no successful SQL check has run yet
+            return "unavailable"
 
     def record_ai_query(self, provider: str, duration_ms: float, success: bool) -> None:
         """Record an AI agent natural language query execution."""
@@ -132,12 +189,7 @@ class MetricsService:
             )
 
             # Fabric health status determination
-            if self.fabric_consecutive_failures >= 3:
-                fabric_status = "unavailable"
-            elif self.fabric_consecutive_failures > 0 or self.fabric_total_queries == 0:
-                fabric_status = "degraded" if self.fabric_consecutive_failures > 0 else "healthy"
-            else:
-                fabric_status = "healthy"
+            fabric_status = self.get_fabric_status()
 
             coverage_pct = round(
                 (self.districts_reporting_count / max(1, self.total_districts_count)) * 100.0, 1
