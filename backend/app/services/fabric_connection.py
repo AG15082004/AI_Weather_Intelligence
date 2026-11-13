@@ -108,17 +108,25 @@ class FabricConnectionService:
             and len(self._settings.fabric_client_id.strip()) > 5
             and len(self._settings.fabric_client_secret.strip()) > 5
         )
+        has_tenant = bool(
+            self._settings.fabric_tenant_id
+            and len(self._settings.fabric_tenant_id.strip()) > 5
+        )
 
         if is_cloud_prod:
-            if has_spn:
+            if has_spn and has_tenant:
                 return "service_principal", "production_service_principal_ready"
+            if has_spn and not has_tenant:
+                return "deferred", "production_service_principal_tenant_id_missing"
             # Never attempt interactive browser/WAM or local Azure CLI on cloud host
             return "deferred", "production_service_principal_credentials_deferred"
 
         # Local development
         raw_mode = (self._settings.fabric_auth_mode or "azure_cli").strip().lower()
-        if raw_mode in ("service_principal", "spn") and has_spn:
-            return "service_principal", "development_service_principal_ready"
+        if raw_mode in ("service_principal", "spn"):
+            if has_spn and has_tenant:
+                return "service_principal", "development_service_principal_ready"
+            return "deferred", "development_service_principal_credentials_missing"
 
         return "azure_cli", "development_azure_cli_ready"
 
@@ -256,21 +264,20 @@ class FabricConnectionService:
             return conn_str, {SQL_COPT_SS_ACCESS_TOKEN: token_struct}
 
         elif mode == "service_principal":
-            parts = [
-                f"Driver={{{driver}}}",
-                f"Server={server}",
-                f"Database={database}",
-                "Authentication=ActiveDirectoryServicePrincipal",
-                f"Encrypt={encrypt}",
-                f"TrustServerCertificate={trust_cert}",
-                f"LoginTimeout={self._settings.fabric_connection_timeout}",
-                "APP=TN_Weather_Intelligence_Platform",
-            ]
-            if self._settings.fabric_client_id:
-                parts.append(f"UID={self._settings.fabric_client_id}")
-            if self._settings.fabric_client_secret:
-                parts.append(f"PWD={self._settings.fabric_client_secret}")
-            return ";".join(parts) + ";", None
+            # Token-based Entra authentication via SQL_COPT_SS_ACCESS_TOKEN (attribute 1256).
+            # DO NOT include UID, PWD, or Authentication keyword in connection string
+            # to avoid ODBC driver conflict and ensure compatibility with Fabric Lakehouse SQL endpoints.
+            conn_str = (
+                f"Driver={{{driver}}};"
+                f"Server={server};"
+                f"Database={database};"
+                f"Encrypt={encrypt};"
+                f"TrustServerCertificate={trust_cert};"
+                f"LoginTimeout={self._settings.fabric_connection_timeout};"
+                "APP=TN_Weather_Intelligence_Platform;"
+            )
+            token_struct = self.get_service_principal_token_struct()
+            return conn_str, {SQL_COPT_SS_ACCESS_TOKEN: token_struct}
 
         else:
             # ActiveDirectoryInteractive
@@ -358,8 +365,8 @@ class FabricConnectionService:
         last_exception: Optional[Exception] = None
 
         for attempt in range(1, max_retries + 2):
-            conn_str, attrs = self.build_connection_params()
             try:
+                conn_str, attrs = self.build_connection_params()
                 if attrs:
                     self._connection = pyodbc.connect(
                         conn_str,
@@ -533,9 +540,14 @@ class FabricConnectionService:
     def _diagnose_odbc_error(self, err_text: str) -> str:
         """Provide helpful diagnostic advice based on ODBC Driver error patterns."""
         lower = err_text.lower()
+        if "0x2746" in lower or "10054" in lower:
+            return (
+                "TLS handshake was forcibly reset by Fabric endpoint (0x2746/10054). "
+                "Ensure OpenSSL SECLEVEL=1 is configured in Docker and TrustServerCertificate=yes."
+            )
         if "token" in lower or "copt_ss_access_token" in lower:
-            return "Azure CLI token error or expiration. Try running 'az login' again."
-        if "login failed" in lower:
+            return "Entra ID access token error or expiration. Verify credentials or run 'az login'."
+        if "login failed" in lower or "28000" in lower or "18456" in lower:
             return (
                 "Login failed for the provided identity. Please ensure the user or Service Principal "
                 "has 'ReadData' permissions on the Lakehouse 'lh_tn_weather_intelligence' in the Fabric workspace."
@@ -545,3 +557,164 @@ class FabricConnectionService:
         if "timeout" in lower or "08001" in lower:
             return "Connection timed out connecting to the SQL endpoint. Check network connectivity, firewall, and server address."
         return "Check Microsoft Fabric SQL Endpoint configuration, network access, and Entra ID permissions."
+
+    async def diagnose_fabric_connectivity(self) -> Dict[str, Any]:
+        """Perform granular multi-step diagnostic of Fabric connectivity without exposing secrets.
+
+        Distinguishes:
+        - MISSING_CONFIG
+        - MISSING_DRIVER
+        - NETWORK_UNREACHABLE
+        - TOKEN_ACQUISITION_FAILED
+        - TLS_HANDSHAKE_RESET
+        - SQL_AUTH_FAILED
+        - SQL_AUTHZ_FAILED
+        - DATABASE_NOT_FOUND
+        - QUERY_EXECUTION_FAILED
+        - SUCCESS
+        """
+        import socket
+        start_time = time.perf_counter()
+        steps: Dict[str, Any] = {}
+        summary = self.get_safe_summary()
+        server = (self._settings.fabric_server or "").strip()
+
+        # Step 1: Configuration Validation
+        mode, reason = self.resolve_auth_mode()
+        if not server:
+            return {
+                "code": "MISSING_CONFIG",
+                "status": "error",
+                "message": "Fabric SQL server endpoint is not configured (FABRIC_SERVER).",
+                "details": summary,
+            }
+        if mode == "deferred":
+            return {
+                "code": "MISSING_CONFIG" if "missing" in reason or "deferred" in reason else "CONFIG_DEFERRED",
+                "status": "error",
+                "message": f"Fabric configuration is deferred: {reason}",
+                "details": summary,
+            }
+        steps["config"] = {"status": "ok", "effective_auth_mode": mode, "reason": reason}
+
+        # Step 2: ODBC Driver Availability
+        if not self.is_driver_available():
+            return {
+                "code": "MISSING_DRIVER",
+                "status": "error",
+                "message": f"ODBC driver '{self._settings.fabric_odbc_driver}' is not installed.",
+                "details": summary,
+            }
+        steps["driver"] = {"status": "ok", "driver": self._settings.fabric_odbc_driver}
+
+        # Step 3: Network TCP Connectivity (Port 1433)
+        try:
+            sock = socket.create_connection((server, 1433), timeout=5.0)
+            sock.close()
+            steps["network"] = {"status": "ok", "port": 1433, "host": server}
+        except Exception as net_err:
+            return {
+                "code": "NETWORK_UNREACHABLE",
+                "status": "error",
+                "message": f"TCP port 1433 unreachable on '{server}': {net_err}",
+                "steps": steps,
+                "details": summary,
+            }
+
+        # Step 4: Entra ID Token Acquisition
+        token_start = time.perf_counter()
+        try:
+            if mode == "service_principal":
+                token_bytes = self.get_service_principal_token_struct()
+            elif mode == "azure_cli":
+                token_bytes = self.get_token_struct()
+            else:
+                token_bytes = None
+            token_ms = round((time.perf_counter() - token_start) * 1000, 2)
+            steps["token_acquisition"] = {
+                "status": "ok",
+                "mode": mode,
+                "latency_ms": token_ms,
+                "token_cached": bool(self._cached_token_struct),
+            }
+        except Exception as tok_err:
+            return {
+                "code": "TOKEN_ACQUISITION_FAILED",
+                "status": "error",
+                "message": f"Entra ID token acquisition failed: {self._clean_error_message(str(tok_err))}",
+                "steps": steps,
+                "details": summary,
+            }
+
+        # Step 5: SQL Connection & SELECT 1
+        sql_start = time.perf_counter()
+        conn = None
+        try:
+            conn = await self.connect()
+            cur = conn.cursor()
+            cur.execute("SELECT 1 AS connection_status")
+            row = cur.fetchone()
+            cur.close()
+            val = row[0] if row else None
+            sql_ms = round((time.perf_counter() - sql_start) * 1000, 2)
+            if val != 1:
+                return {
+                    "code": "QUERY_EXECUTION_FAILED",
+                    "status": "error",
+                    "message": f"SELECT 1 returned unexpected value: {val}",
+                    "steps": steps,
+                    "details": summary,
+                }
+            steps["sql_ping"] = {"status": "ok", "result": 1, "latency_ms": sql_ms}
+        except Exception as sql_err:
+            err_str = str(sql_err).lower()
+            code = "SQL_CONNECTION_FAILED"
+            if "0x2746" in err_str or "10054" in err_str:
+                code = "TLS_HANDSHAKE_RESET"
+            elif "28000" in err_str or "18456" in err_str or "login failed" in err_str:
+                code = "SQL_AUTH_FAILED"
+            elif "permission" in err_str or "denied" in err_str or "not authorized" in err_str:
+                code = "SQL_AUTHZ_FAILED"
+            elif "cannot open database" in err_str or "4060" in err_str:
+                code = "DATABASE_NOT_FOUND"
+
+            return {
+                "code": code,
+                "status": "error",
+                "message": self._clean_error_message(str(sql_err)),
+                "diagnosis": self._diagnose_odbc_error(str(sql_err)),
+                "steps": steps,
+                "details": summary,
+            }
+
+        # Step 6: Validate Gold Tables
+        gold_tables = [
+            "gold_current_weather_latest",
+            "gold_air_quality_latest",
+            "gold_district_daily_analytics",
+            "gold_district_monthly_analytics",
+            "gold_district_rainfall_analytics",
+        ]
+        table_results: Dict[str, Any] = {}
+        try:
+            cur = conn.cursor()
+            for tbl in gold_tables:
+                try:
+                    cur.execute(f"SELECT COUNT(*) FROM [dbo].[{tbl}]")
+                    r_cnt = cur.fetchone()[0]
+                    table_results[tbl] = {"accessible": True, "row_count": r_cnt}
+                except Exception as t_err:
+                    table_results[tbl] = {"accessible": False, "error": str(t_err)}
+            cur.close()
+            steps["gold_tables"] = table_results
+        except Exception as g_err:
+            steps["gold_tables"] = {"error": str(g_err)}
+
+        total_ms = round((time.perf_counter() - start_time) * 1000, 2)
+        return {
+            "code": "SUCCESS",
+            "status": "connected",
+            "total_latency_ms": total_ms,
+            "steps": steps,
+            "details": summary,
+        }

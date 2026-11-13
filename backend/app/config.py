@@ -8,8 +8,8 @@ Loads settings from environment variables and .env file.
 Loads settings from environment variables and .env file.
 """
 
-from typing import List, Optional
-from pydantic import AliasChoices, Field
+from typing import Any, List, Optional
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,18 +19,19 @@ class Settings(BaseSettings):
     # Environment
     app_env: str = Field(
         default="development",
+        validation_alias=AliasChoices("APP_ENV", "ENVIRONMENT"),
         description="Application environment (development, staging, production)",
     )
 
     # Microsoft Fabric SQL Connection
     fabric_server: str = Field(
         default="",
-        validation_alias=AliasChoices("FABRIC_SERVER", "FABRIC_SQL_ENDPOINT"),
+        validation_alias=AliasChoices("FABRIC_SERVER", "FABRIC_SQL_ENDPOINT", "AZURE_SQL_SERVER"),
         description="Microsoft Fabric SQL endpoint / server URL",
     )
     fabric_database: str = Field(
         default="lh_tn_weather_intelligence",
-        validation_alias=AliasChoices("FABRIC_DATABASE"),
+        validation_alias=AliasChoices("FABRIC_DATABASE", "AZURE_SQL_DATABASE"),
         description="Fabric database / Lakehouse name",
     )
     fabric_auth_mode: str = Field(
@@ -70,10 +71,12 @@ class Settings(BaseSettings):
     )
     fabric_encrypt: str = Field(
         default="yes",
+        validation_alias=AliasChoices("FABRIC_ENCRYPT"),
         description="Encrypt connection (yes/no)",
     )
     fabric_trust_server_certificate: str = Field(
-        default="no",
+        default="yes",
+        validation_alias=AliasChoices("FABRIC_TRUST_SERVER_CERTIFICATE", "FABRIC_TRUST_SERVER_CERT"),
         description="Trust server certificate (yes/no)",
     )
     fabric_connection_timeout: int = Field(
@@ -91,6 +94,63 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("FABRIC_MAX_RETRIES"),
         description="Max connection retries for transient failures",
     )
+
+    @field_validator("app_env", mode="before")
+    @classmethod
+    def _clean_app_env(cls, v: Any) -> str:
+        if isinstance(v, str) and v.strip():
+            return v.strip().lower()
+        return "development"
+
+    @field_validator("fabric_server", mode="before")
+    @classmethod
+    def _clean_fabric_server(cls, v: Any) -> str:
+        if isinstance(v, str):
+            return v.strip()
+        return ""
+
+    @field_validator("fabric_database", mode="before")
+    @classmethod
+    def _clean_fabric_database(cls, v: Any) -> str:
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        return "lh_tn_weather_intelligence"
+
+    @field_validator("fabric_auth_mode", mode="before")
+    @classmethod
+    def _clean_fabric_auth_mode(cls, v: Any) -> str:
+        if isinstance(v, str) and v.strip():
+            return v.strip().lower()
+        return "azure_cli"
+
+    @field_validator("fabric_odbc_driver", mode="before")
+    @classmethod
+    def _clean_fabric_odbc_driver(cls, v: Any) -> str:
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        return "ODBC Driver 18 for SQL Server"
+
+    @field_validator("fabric_trust_server_certificate", mode="before")
+    @classmethod
+    def _clean_fabric_trust_cert(cls, v: Any) -> str:
+        if isinstance(v, str) and v.strip():
+            return v.strip().lower()
+        return "yes"
+
+    @field_validator(
+        "fabric_tenant_id",
+        "fabric_username",
+        "fabric_password",
+        "fabric_client_id",
+        "fabric_client_secret",
+        mode="before",
+    )
+    @classmethod
+    def _clean_optional_string(cls, v: Any) -> Optional[str]:
+        if isinstance(v, str):
+            cleaned = v.strip()
+            return cleaned if cleaned else None
+        return v
 
     # Compatibility properties for existing code
     @property
